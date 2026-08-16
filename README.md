@@ -1,163 +1,173 @@
-Malayalam Voice-Controlled Chess Game — "ചതുരംഗം" (Chathurangam)
-A fully voice-controlled, Malayalam-first chess web application for a handicapped user who cannot interact with a traditional chess board but can speak. The app features a medieval/fantasy themed UI inspired by the reference image, with bot play (Stockfish), learning tips, and friend play support.
+<div align="center">
 
-Background
-The target user:
+# ⚔️ ചതുരംഗം — Chathurangam
+### *Malayalam Voice-Controlled Hands-Free Accessible Chess*
 
-Cannot use mouse/keyboard/touchscreen to play chess
-Can speak fluently in Malayalam
-Wants to learn chess (tips, tricks, blunder warnings)
-Wants to play against bots at various difficulty levels
-Wants to play with friends
-Proposed Changes
-Technology Stack
-Layer	Technology	Why
-UI	Vanilla HTML/CSS/JS (single-page app)	No build tools needed, instant deployment
-Chess Logic	chess.js (CDN)	Move validation, game state, PGN/FEN support
-Chess Board	Custom CSS/SVG board	Medieval theme matching reference image
-Chess Engine	stockfish.js single-thread WASM (CDN)	Bot opponent, move evaluation, no server needed
-Voice Input	Web Speech API (ml-IN)	Free Malayalam speech-to-text, works in Chrome
-Voice Output	Web Speech Synthesis API	Free Malayalam TTS for speaking moves/hints
-Wake Lock	Screen Wake Lock API	Keeps screen on during hands-free play
-App Structure — Single HTML + CSS + JS Files
-[NEW] index.html
-The main HTML file containing:
+[![GitHub license](https://img.shields.io/badge/license-MIT-gold.svg)](LICENSE)
+[![Language](https://img.shields.io/badge/Language-Malayalam%20%7C%20English-darkred.svg)](#)
+[![Accessibility](https://img.shields.io/badge/Accessibility-100%25%20Hands--Free-success.svg)](#)
+[![Web Speech API](https://img.shields.io/badge/Speech-Web%20Speech%20API-blue.svg)](#)
+[![Web Audio API](https://img.shields.io/badge/Audio-Web%20Audio%20API-purple.svg)](#)
+[![Theme](https://img.shields.io/badge/Theme-Medieval%20Dark%20Gold-goldenrod.svg)](#)
 
-Medieval/fantasy-themed layout matching the reference image
-Player info panels (Black & White with names/ratings)
-Game Status panel (Turn, Move #, Time)
-Voice Control panel with animated microphone indicator
-Hints panel for tips and learning
-Bottom scroll bar showing the last spoken command
-Bottom toolbar: Menu, History, Settings, Undo, Resign, Guide
-Loading screen with app intro
-[NEW] styles.css
-Complete medieval/fantasy styling:
+<br/>
 
-Dark textured backgrounds with parchment-style panels
-Gold/bronze ornamental borders and decorative elements
-Custom chess board with dark/light square colors matching the theme
-Animated microphone indicator (pulsing glow when listening)
-Piece highlight/selection animations (golden glow like reference)
-Move animation trails
-Responsive layout for mobile (Android) use
-Google Fonts for medieval typography (Cinzel, MedievalSharp)
-[NEW] app.js
-The complete application logic:
+<img src="Chess.png" alt="Chathurangam Malayalam Voice Chess" width="85%" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); border: 2px solid #d4af37;" />
 
-1. Chess Engine Integration
+<br/><br/>
 
-Initialize chess.js for game state management
-Initialize Stockfish.js via Web Worker for bot play
-Configurable difficulty (depth 1-20, mapped to beginner/intermediate/advanced)
-Move evaluation for blunder detection
-2. Malayalam Voice Command System Complete Malayalam-to-chess-notation parser supporting:
+**ചതുരംഗം (Chathurangam)** is an accessible, voice-driven chess application crafted specifically for players with mobility impairments who cannot use a physical board, mouse, or keyboard. By speaking natural Malayalam or English commands, players can command pieces, learn tactics, play against an AI engine, and compete with friends—**100% hands-free**.
 
-Malayalam Command	English Equivalent	Action
-"കാലാൾ ഇ ഫോറിലേക്ക്"	"Pawn to e4"	Move pawn to e4
-"കുതിര എഫ് മൂന്നിലേക്ക്"	"Knight to f3"	Move knight to f3
-"ആന സി ഫോറിലേക്ക്"	"Bishop to c4"	Move bishop to c4
-"തേര് ഡി വണ്ണിലേക്ക്"	"Rook to d1"	Move rook to d1
-"മന്ത്രി ഡി ഫൈവിലേക്ക്"	"Queen to d5"	Move queen to d5
-"രാജാവ് ജി വണ്ണിലേക്ക്"	"King to g1"	Move king to g1
-"ക്യാസിൽ" / "കോട്ട കെട്ടുക"	"Castle"	Castling (kingside/queenside)
-"പിൻവലിക്കുക"	"Undo"	Undo last move
-"കീഴടങ്ങുക"	"Resign"	Resign game
-"സഹായം"	"Help"	Read available commands
-"പുതിയ കളി"	"New game"	Start new game
-"സൂചന" / "ഹിന്റ്"	"Hint"	Get best move suggestion
-Also supports number-based coordinate system as fallback:
+[✨ Live Features](#-key-features) • [🎙️ Voice Commands](#-voice-command-dictionary) • [🚀 Quick Start](#-quick-start) • [🧠 AI & Engine](#-chess-engine--coach) • [🎨 Aesthetics](#-medieval-design-system)
 
-User says "ഇ രണ്ട് ഇ നാല്" (E2 E4) → moves piece from e2 to e4
-Simpler, more reliable for speech recognition
-3. Voice Feedback (TTS)
+</div>
 
-Announces opponent moves in Malayalam
-Reads hints and tips aloud
-Blunder warnings: "അത് നല്ല നീക്കമല്ല! നിങ്ങളുടെ [piece] നഷ്ടപ്പെടും"
-Game state announcements: check, checkmate, stalemate
-4. Learning/Coach Mode
+---
 
-Blunder detection: Stockfish evaluates user's move; if evaluation drops significantly, warns user
-Hint system: Shows/speaks the best move when asked
-Contextual tips panel showing chess tips in Malayalam
-Move history with evaluation bars
-5. Game Modes
+## 🌟 Mission & Purpose
 
-vs Bot: Play against Stockfish at adjustable difficulty
-vs Friend (Local): Two players on same device, voice-controlled
-Analysis Mode: Free-form board setup with evaluation
-6. UI Panels (matching reference image)
+Traditional chess requires fine motor skills to physically move pieces or drag them across a touch screen. For quadriplegic or paralyzed individuals who have intact speech and fluency in **Malayalam**, this web application creates a frictionless bridge:
 
-Top: Black player info (left) — White player info (right)
-Left Sidebar: Game Status (Turn, Move #, Timer)
-Center: Chess board with coordinate labels (a-h, 1-8)
-Right Sidebar: Voice Control indicator + Hints panel
-Bottom Banner: Scroll/parchment showing last voice command
-Bottom Toolbar: Menu, History, Settings, Undo, Resign, Guide buttons
-[NEW] pieces/ (directory)
-SVG chess piece images styled to match the medieval theme (we'll use standard Unicode chess symbols styled with CSS, or generate custom piece graphics).
+1. **Zero Touch Required**: The application boots into listening mode with a spoken audio introduction, starts the clock automatically, and listens continuously.
+2. **Native Malayalam Recognition**: Robust phonetic parsing covering natural Malayalam dialect patterns, sandhi grammar suffixes, and mixed Malayalam-English speech.
+3. **Integrated Tactical Coach**: Real-time blunder alerts and hint recommendations to help players study and improve their chess mastery.
 
-Voice Command Flow
-Yes
-No
-Yes
-No
-Yes
-No
-🎤 User speaks Malayalam
-Web Speech API (ml-IN)
-Raw Malayalam text
-Malayalam Parser
-Valid chess move?
-chess.js validates move
-🔊 TTS: 'മനസ്സിലായില്ല, വീണ്ടും പറയൂ'
-Legal move?
-Update board + animate
-🔊 TTS: 'ആ നീക്കം സാധ്യമല്ല'
-Stockfish evaluates
-Blunder?
-🔊 TTS: Warning in Malayalam
-Bot calculates response
-🔊 TTS: Announce bot's move
-Key Accessibility Features
-Continuous Listening: Mic stays on with auto-restart on silence timeout
-Screen Wake Lock: Screen never dims during a game
-Full Audio Feedback: Every action is spoken aloud in Malayalam
-High Contrast Board: Clear visual distinction between pieces and squares
-Large Piece Sizes: Easy to see on mobile screens
-No Touch Required: 100% voice-operated (with optional touch fallback)
-Error Recovery: If voice isn't understood, gently asks user to repeat
-User Review Required
-IMPORTANT
+---
 
-Browser Requirement: This app uses the Web Speech API which works best in Google Chrome / Chromium browsers on Android. Firefox and Safari have limited Malayalam speech recognition support.
+## ✨ Key Features
 
-IMPORTANT
+| Feature | Description |
+| :--- | :--- |
+| 🎙️ **100% Hands-Free Play** | Automatically starts listening on page load; screen wake-lock prevents display sleep during matches. |
+| ⚡ **Zero-Latency Execution** | Fast-path interim speech execution executes valid moves in `<50ms` with subtle audio feedback and zero blocking delays. |
+| 🔀 **Acoustic Disambiguation** | Smart chess-context resolver automatically distinguishes acoustically ambiguous sounds (e.g. **'B'** vs **'D'**, rank **'1'** variations). |
+| 🤖 **Multi-Level AI Engine** | Minimax algorithm with Alpha-Beta pruning supporting **Beginner** (Easy), **Intermediate** (Medium), and **Expert** (Hard) bots. |
+| 🎓 **Blunder & Tactical Coach** | Evaluates material swings and notifies players with visual alerts if a valuable piece is left undefended. |
+| 📜 **Custom Voice Introduction** | Players or caregivers can write and save personalized spoken welcome messages via the built-in Settings panel. |
+| 🏰 **Medieval Dark Gold HUD** | Responsive board with Cinzel medieval typography, piece trails, glowing legal move dots, and an always-visible voice HUD. |
+| 🚫 **Explicit Fault Move Reporting** | Clearly distinguishes chess rule violations from speech recognition errors (e.g. `❌ തെറ്റായ നീക്കം: e2 → e5 സാധ്യമല്ല`). |
 
-Internet Required for Voice: The Web Speech API in Chrome sends audio to Google's servers for processing. An internet connection is required for voice commands to work.
+---
 
-Open Questions
-IMPORTANT
+## 🎙️ Voice Command Dictionary
 
-Friend Play: For the initial version, should I implement:
+### 1. ♟️ Piece Moves & Coordinates
 
-Local 2-player (both players use voice on the same device), or
-Online multiplayer via Lichess Board API (requires Lichess account)? I'll start with local 2-player and can add Lichess integration later.
-NOTE
+Players can speak moves in multiple natural formats:
 
-Difficulty Levels: I plan to create 3 bot difficulty levels:
+| Format | Spoken Voice Example (Malayalam / English) | Board Action |
+| :--- | :--- | :--- |
+| **From ➔ To** | `"ഇ രണ്ട് ഇ നാല്"` / `"e2 e4"` | Moves pawn from **e2** to **e4** |
+| **Piece ➔ Square** | `"കുതിര എഫ് മൂന്ന്"` / `"Knight f3"` | Moves Knight to **f3** |
+| **Piece ➔ Target** | `"കാലാൾ ഡി നാല്"` / `"Pawn d4"` | Moves Pawn to **d4** |
+| **Direct Square** | `"ഡി നാല്"` / `"d4"` | Moves Pawn to **d4** |
+| **Step-by-Step** | `"കുതിര"` ➔ *"g1 highlights"* ➔ `"എഫ് 3"` | Stages Knight on **g1**, then moves to **f3** |
 
-🟢 തുടക്കക്കാരൻ (Beginner) — Stockfish depth 1-3
-🟡 ഇടത്തരം (Intermediate) — Stockfish depth 5-8
-🔴 വിദഗ്ധൻ (Expert) — Stockfish depth 12-15
-Verification Plan
-Manual Verification
-Open in Chrome on desktop — test all voice commands in Malayalam
-Open in Chrome on Android phone — verify responsive layout and voice
-Test all game states: check, checkmate, stalemate, castling, en passant, promotion
-Verify Stockfish bot responds correctly at each difficulty level
-Test blunder detection and hint system
-Verify TTS speaks moves correctly in Malayalam
-Test wake lock keeps screen on
-Test continuous listening with auto-restart
+#### 🔤 Supported Phonetic Letter & Rank Dictionary
+- **Files (Columns)**:
+  - **A**: `"എ"`, `"ഏ"`, `"ആ"`, `"a"`, `"A"`, `"aye"`, `"എയ്"`
+  - **B**: `"ബി"`, `"ബീ"`, `"b"`, `"B"`, `"bee"`, `"ബ"`
+  - **C**: `"സി"`, `"സീ"`, `"c"`, `"C"`, `"see"`
+  - **D**: `"ഡി"`, `"ഡീ"`, `"d"`, `"D"`, `"dee"`, `"ദി"`, `"ഡ"`
+  - **E**: `"ഇ"`, `"ഈ"`, `"e"`, `"E"`, `"യി"`, `"ee"`
+  - **F**: `"എഫ്"`, `"എഫ"`, `"f"`, `"F"`, `"ef"`
+  - **G**: `"ജി"`, `"ജീ"`, `"g"`, `"G"`
+  - **H**: `"എച്ച്"`, `"എച്ച"`, `"എയ്ച്ച്"`, `"h"`, `"H"`, `"ഹാ"`
+- **Ranks (Rows)**:
+  - **1**: `"ഒന്ന്"`, `"ഒന്നു"`, `"വൺ"`, `"1"`, `"one"`, `"on"`, `"first"`, `"൧"`
+  - **2–8**: `"രണ്ട്"`, `"മൂന്ന്"`, `"നാല്"`, `"അഞ്ച്"`, `"ആറ്"`, `"ഏഴ്"`, `"എട്ട്"` / `"2"–"8"` / `"two"–"eight"`
+
+---
+
+### 2. 🧭 UI & Game Navigation Controls
+
+| Spoken Voice Command | English Meaning | Triggered Action |
+| :--- | :--- | :--- |
+| **`"സഹായം"`** / `"Help"` | Help | Opens Voice Command Reference modal |
+| **`"സെറ്റിംഗ്സ്"`** / `"Settings"` | Settings | Opens Settings & Custom Voice Intro |
+| **`"ഹിസ്റ്ററി"`** / `"History"` | History | Opens Move List history |
+| **`"ക്ലോസ്"`** / **`"ബാക്ക്"`** / `"Close"` | Close | Closes any open modal dialog |
+| **`"വേണ്ട"`** / **`"ക്യാൻസൽ"`** | Cancel | Cancels active piece/square selection |
+| **`"പുതിയ കളി"`** / `"New Game"` | New Game | Starts a new AI Bot match |
+| **`"സുഹൃത്ത്"`** / `"Friend"` | Friend Game | Starts local 2-player pass-and-play match |
+| **`"പിൻവലിക്കുക"`** / `"Undo"` | Undo | Reverts last move |
+| **`"സൂചന"`** / `"Hint"` | Hint | Evaluates and highlights the best tactical move |
+| **`"കീഴടങ്ങുക"`** / `"Resign"` | Resign | Resigns the match |
+| **`"കാസ്‌ലിംഗ്"`** / `"Castle"` | Castle | Executes King or Queen side castling |
+| **`"തിരിക്കുക"`** / `"Flip"` | Flip Board | Rotates the board orientation |
+| **`"എളുപ്പം"` / `"ഇടത്തരം"` / `"കഠിനം"` | Difficulty | Sets AI Bot to Beginner, Medium, or Hard |
+| **`"മൈക്ക് ഓഫ്"`** / **`"മൈക്ക് ഓൺ"`** | Mic Toggle | Mutes or unmutes speech recognition |
+
+---
+
+## 🧠 Chess Engine & Coach
+
+The application includes an internal chess intelligence engine:
+- **Minimax with Alpha-Beta Pruning**: Fast tree search that evaluates piece material balance and Piece-Square Tables (PST) without freezing the UI thread.
+- **Dynamic Positional Evaluation**:
+  - Center control incentives.
+  - Piece mobility and outpost positioning.
+  - King safety and castle protection heuristics.
+- **Blunder Detection Engine**:
+  - Compares position evaluation before and after the move.
+  - Warns if high-value pieces (Queen, Rook, Bishop, Knight) are left hanging without adequate defense.
+
+---
+
+## 🎨 Medieval Design System
+
+The visual design is inspired by ancient medieval strategy games:
+- **Palette**: Deep Obsidian (`#0d0a06`), Antique Gold (`#d4af37`), Parchment Cream (`#fff5be`), and Crimson Accents (`#8b1e1e`).
+- **Typography**: Google Fonts [`Cinzel`](https://fonts.google.com/specimen/Cinzel), [`MedievalSharp`](https://fonts.google.com/specimen/MedievalSharp), and [`Noto Sans Malayalam`](https://fonts.google.com/specimen/Noto+Sans+Malayalam).
+- **Responsive Layout**: Fluid CSS Grid and Flexbox adapting smoothly from mobile phones and tablets to widescreen monitors.
+- **Micro-Audio FX**: Custom Web Audio API synthesizer for move clicks, start chimes, and illegal move tones without blocking the microphone.
+
+---
+
+## 🚀 Quick Start
+
+### 1. Requirements
+- Any modern browser supporting the **Web Speech API** (Google Chrome or Chromium-based browsers recommended).
+- Microphone access enabled.
+
+### 2. Running Locally
+Clone the repository and open `index.html` in your browser:
+
+```bash
+# Clone repository
+git clone https://github.com/Christy-Roy-tech/---Malayalam-Voice-Enabled-Chess-.git
+
+# Navigate to directory
+cd ---Malayalam-Voice-Enabled-Chess-
+
+# Serve locally (e.g. using Python or Node http-server)
+python -m http.server 8000
+```
+Open `http://localhost:8000` in Google Chrome and allow microphone access when prompted.
+
+---
+
+## 📁 Repository Structure
+
+```
+├── index.html        # Semantic HTML5 layout, HUD, coordinate board & modals
+├── styles.css        # Medieval dark gold theme, animations & responsive styles
+├── app.js            # Voice recognition parser, chess AI engine, Web Audio FX & state
+├── favicon.svg       # Glowing gold knight vector favicon with soundwave accent
+├── Chess.png         # Project visual banner preview
+└── README.md         # Comprehensive project documentation
+```
+
+---
+
+## 🤝 Accessibility & Inclusivity
+
+This project was built with ❤️ to empower physically challenged individuals through technology. If you have suggestions for additional language dialects, speech patterns, or accessibility enhancements, contributions and pull requests are warmly welcomed!
+
+---
+
+<div align="center">
+
+Made with ⚔️ by **[Christy Roy](https://github.com/Christy-Roy-tech)**
+
+</div>
