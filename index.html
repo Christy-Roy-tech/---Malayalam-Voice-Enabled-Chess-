@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ml">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="ചതുരംഗം - Malayalam Voice Controlled Chess Game for accessibility">
+    <meta name="theme-color" content="#0d0a06">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>ചതുരംഗം — Voice Chess</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <!-- ==================== LOADING SCREEN ==================== -->
+    <div id="loading-screen">
+        <div class="title">CHATHURANGAM</div>
+        <div class="subtitle">ചതുരംഗം — മലയാളം വോയ്‌സ് ചെസ്</div>
+        <div class="loading-spinner"></div>
+    </div>
+
+    <!-- ==================== TOAST CONTAINER ==================== -->
+    <div id="toast-container"></div>
+
+    <!-- ==================== TOP BAR — Player Info ==================== -->
+    <div id="top-bar">
+        <div class="player-card" id="black-player-card">
+            <div class="player-avatar" id="black-avatar">♚</div>
+            <div class="player-info">
+                <div class="player-name" id="black-name">Black</div>
+                <div class="player-subtitle" id="black-subtitle">Guardian of Shadow</div>
+                <div class="player-rating">
+                    <span class="crown">♛</span>
+                    <span id="black-rating">1200</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="center-emblem">
+            <span class="emblem-icon">⚔</span>
+            ചതുരംഗം
+        </div>
+
+        <div class="player-card" id="white-player-card">
+            <div class="player-avatar" id="white-avatar">♔</div>
+            <div class="player-info">
+                <div class="player-name" id="white-name">White</div>
+                <div class="player-subtitle" id="white-subtitle">Seeker of Light</div>
+                <div class="player-rating">
+                    <span class="crown">♛</span>
+                    <span id="white-rating">1200</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MAIN CONTENT ==================== -->
+    <div id="main-content">
+
+        <!-- LEFT SIDEBAR -->
+        <div class="sidebar left">
+            <div class="panel" id="game-status-panel">
+                <div class="panel-title">Game Status</div>
+                <div class="status-item">
+                    <span class="status-icon">⚐</span>
+                    <span class="status-label">Turn</span>
+                    <span class="status-value" id="status-turn">White</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-icon">⊞</span>
+                    <span class="status-label">Move</span>
+                    <span class="status-value" id="status-move">1</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-icon">⧖</span>
+                    <span class="status-label">Time</span>
+                    <span class="status-value" id="status-time">00:00</span>
+                </div>
+                <div class="thinking-indicator" id="thinking-indicator">
+                    <span>Thinking</span>
+                    <div class="thinking-dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel" id="captured-panel">
+                <div class="panel-title">Captured</div>
+                <div class="captured-row">
+                    <span class="label">White lost:</span>
+                    <span id="white-captured"></span>
+                </div>
+                <div class="captured-row">
+                    <span class="label">Black lost:</span>
+                    <span id="black-captured"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER — Chess Board -->
+        <div id="board-container">
+            <div id="board-wrapper">
+                <div id="chess-board"></div>
+            </div>
+        </div>
+
+        <!-- RIGHT SIDEBAR -->
+        <div class="sidebar right">
+            <div class="panel" id="voice-panel">
+                <div class="panel-title">Voice Control</div>
+                <div class="mic-container">
+                    <div class="mic-button" id="mic-button">
+                        <span class="mic-icon">🎤</span>
+                    </div>
+                    <div class="mic-status" id="mic-status">Click to Start</div>
+                    <div class="voice-waveform" id="voice-waveform">
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel" id="hints-panel">
+                <div class="panel-title">Hints</div>
+                <div class="hint-content" id="hint-content">
+                    <span class="hint-icon">📜</span>
+                    <span id="hint-text">Say "സഹായം" for commands or "സൂചന" for a hint.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== COMMAND BANNER ==================== -->
+    <div id="command-banner">
+        <div id="command-text">
+            <span class="command-prefix">⚔</span>
+            <span id="command-display">Say a move to begin...</span>
+        </div>
+    </div>
+
+    <!-- ==================== BOTTOM TOOLBAR ==================== -->
+    <div id="bottom-toolbar">
+        <div class="toolbar-group">
+            <button class="toolbar-btn" id="btn-menu" title="Menu">
+                <span class="btn-icon">☰</span>
+                <span class="btn-label">Menu</span>
+            </button>
+            <button class="toolbar-btn" id="btn-history" title="Move History">
+                <span class="btn-icon">📜</span>
+                <span class="btn-label">History</span>
+            </button>
+            <button class="toolbar-btn" id="btn-settings" title="Settings">
+                <span class="btn-icon">⚙</span>
+                <span class="btn-label">Settings</span>
+            </button>
+        </div>
+        <div class="toolbar-group">
+            <button class="toolbar-btn" id="btn-undo" title="Undo Move">
+                <span class="btn-icon">↩</span>
+                <span class="btn-label">Undo</span>
+            </button>
+            <button class="toolbar-btn" id="btn-resign" title="Resign">
+                <span class="btn-icon">🏳</span>
+                <span class="btn-label">Resign</span>
+            </button>
+            <button class="toolbar-btn" id="btn-guide" title="Voice Guide">
+                <span class="btn-icon">❓</span>
+                <span class="btn-label">Guide</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ==================== MODALS ==================== -->
+
+    <!-- MENU MODAL -->
+    <div class="modal-overlay" id="modal-menu">
+        <div class="modal">
+            <button class="modal-close" id="close-menu">✕</button>
+            <div class="modal-title">☰ Menu</div>
+            <button class="modal-btn" id="menu-new-game">
+                <span class="btn-emoji">⚔</span>
+                <span class="btn-text">
+                    <span class="primary">New Game</span>
+                    <span class="secondary">പുതിയ കളി ആരംഭിക്കുക</span>
+                </span>
+            </button>
+            <button class="modal-btn" id="menu-vs-friend">
+                <span class="btn-emoji">👥</span>
+                <span class="btn-text">
+                    <span class="primary">Play with Friend</span>
+                    <span class="secondary">സുഹൃത്തിനോടൊപ്പം കളിക്കുക</span>
+                </span>
+            </button>
+            <button class="modal-btn" id="menu-guide">
+                <span class="btn-emoji">📖</span>
+                <span class="btn-text">
+                    <span class="primary">Voice Guide</span>
+                    <span class="secondary">വോയ്‌സ് കമാൻഡ് ഗൈഡ്</span>
+                </span>
+            </button>
+            <button class="modal-btn" id="menu-settings">
+                <span class="btn-emoji">⚙</span>
+                <span class="btn-text">
+                    <span class="primary">Settings</span>
+                    <span class="secondary">ക്രമീകരണങ്ങൾ</span>
+                </span>
+            </button>
+        </div>
+    </div>
+
+    <!-- NEW GAME MODAL -->
+    <div class="modal-overlay" id="modal-new-game">
+        <div class="modal">
+            <button class="modal-close" id="close-new-game">✕</button>
+            <div class="modal-title">⚔ New Game</div>
+
+            <div class="modal-section">Difficulty / ബുദ്ധിമുട്ട്</div>
+            <div class="difficulty-selector" id="difficulty-selector">
+                <button class="diff-option selected" data-depth="2">
+                    <span class="diff-icon">🟢</span>
+                    <span class="diff-label">Easy</span>
+                    <span class="diff-label-ml">തുടക്കം</span>
+                </button>
+                <button class="diff-option" data-depth="4">
+                    <span class="diff-icon">🟡</span>
+                    <span class="diff-label">Medium</span>
+                    <span class="diff-label-ml">ഇടത്തരം</span>
+                </button>
+                <button class="diff-option" data-depth="6">
+                    <span class="diff-icon">🔴</span>
+                    <span class="diff-label">Hard</span>
+                    <span class="diff-label-ml">കഠിനം</span>
+                </button>
+            </div>
+
+            <div class="modal-section">Play As / നിറം</div>
+            <div class="color-selector" id="color-selector">
+                <button class="color-option selected" data-color="w" title="White">♔</button>
+                <button class="color-option" data-color="b" title="Black">♚</button>
+                <button class="color-option" data-color="random" title="Random">🎲</button>
+            </div>
+
+            <button class="start-btn" id="start-bot-game">
+                കളി ആരംഭിക്കുക — Start Game
+            </button>
+        </div>
+    </div>
+
+    <!-- FRIEND GAME MODAL -->
+    <div class="modal-overlay" id="modal-friend-game">
+        <div class="modal">
+            <button class="modal-close" id="close-friend-game">✕</button>
+            <div class="modal-title">👥 Play with Friend</div>
+            <p
+                style="text-align:center; color: var(--text-light-secondary); font-size: 0.85rem; margin-bottom: 16px; font-family: 'Noto Sans Malayalam', sans-serif;">
+                രണ്ട് പേർക്കും ശബ്ദം ഉപയോഗിച്ച് കളിക്കാം<br>
+                <small style="color: var(--text-light-secondary);">Both players use voice commands on this
+                    device</small>
+            </p>
+            <button class="start-btn" id="start-friend-game">
+                കളി ആരംഭിക്കുക — Start Game
+            </button>
+        </div>
+    </div>
+
+    <!-- GUIDE MODAL -->
+    <div class="modal-overlay" id="modal-guide">
+        <div class="modal">
+            <button class="modal-close" id="close-guide">✕</button>
+            <div class="modal-title">📖 Voice Guide</div>
+
+            <div class="modal-section">3-Step Move System / ഘട്ടം ഘട്ടമായുള്ള നീക്കം</div>
+            <ul class="command-list">
+                <li>
+                    <span class="command-ml">1. കരു: "കുതിര", "കാലാൾ", "ആന", "തേര്", "മന്ത്രി", "രാജാവ്"</span>
+                    <span class="command-en">Step 1: Say the Piece (e.g. "Knight", "Pawn")</span>
+                </li>
+                <li>
+                    <span class="command-ml">2. ഏത് കളത്തിൽ നിന്ന്: "ജി വൺ", "ഇ രണ്ട്" (From-square)</span>
+                    <span class="command-en">Step 2: Say the From-Square (e.g. "g1", "e2")</span>
+                </li>
+                <li>
+                    <span class="command-ml">3. എവിടേക്ക്: "എഫ് ത്രീ", "ഇ നാല്" (To-square)</span>
+                    <span class="command-en">Step 3: Say the Destination Square (e.g. "f3", "e4")</span>
+                </li>
+                <li>
+                    <span class="command-ml">4. സ്ഥിരീകരിക്കാൻ: "ശരി" / "OK" | റദ്ദാക്കാൻ: "വേണ്ട"</span>
+                    <span class="command-en">Step 4: Say "ശരി" (OK / Proceed) to move fast, or "വേണ്ട" (Cancel)</span>
+                </li>
+            </ul>
+
+            <div class="modal-section">Chess Pieces / കരുക്കൾ</div>
+            <ul class="command-list">
+                <li>
+                    <span class="command-ml">♔ രാജാവ് — King (ഉദാ: "രാജാവ് ജി വൺ")</span>
+                    <span class="command-en">King move</span>
+                </li>
+                <li>
+                    <span class="command-ml">♕ മന്ത്രി / റാണി — Queen (ഉദാ: "മന്ത്രി ഡി ഫൈവ്")</span>
+                    <span class="command-en">Queen move</span>
+                </li>
+                <li>
+                    <span class="command-ml">♖ തേര് / കോട്ട — Rook (ഉദാ: "തേര് എ വൺ")</span>
+                    <span class="command-en">Rook move</span>
+                </li>
+                <li>
+                    <span class="command-ml">♗ ആന — Bishop (ഉദാ: "ആന സി ഫോർ")</span>
+                    <span class="command-en">Bishop move</span>
+                </li>
+                <li>
+                    <span class="command-ml">♘ കുതിര — Knight (ഉദാ: "കുതിര എഫ് ത്രീ")</span>
+                    <span class="command-en">Knight move</span>
+                </li>
+                <li>
+                    <span class="command-ml">♙ കാലാൾ — Pawn (ഉദാ: "കാലാൾ ഇ ഫോർ")</span>
+                    <span class="command-en">Pawn move</span>
+                </li>
+            </ul>
+
+            <div class="modal-section">Modal & Game Commands / കമാൻഡുകൾ</div>
+            <ul class="command-list">
+                <li>
+                    <span class="command-ml">"ക്ലോസ്" / "ബാക്ക്" — Close Guide</span>
+                    <span class="command-en">Closes this help guide and returns to the game</span>
+                </li>
+                <li>
+                    <span class="command-ml">"പിൻവലിക്കുക" — Undo</span>
+                    <span class="command-en">Takes back the last move</span>
+                </li>
+                <li>
+                    <span class="command-ml">"സൂചന" / "ഹിന്റ്" — Hint</span>
+                    <span class="command-en">Get the best move suggestion</span>
+                </li>
+                <li>
+                    <span class="command-ml">"കീഴടങ്ങുക" — Resign</span>
+                    <span class="command-en">Resign the current game</span>
+                </li>
+                <li>
+                    <span class="command-ml">"പുതിയ കളി" — New Game</span>
+                    <span class="command-en">Start a new game</span>
+                </li>
+                <li>
+                    <span class="command-ml">"കോട്ട കെട്ടുക" — Castle</span>
+                    <span class="command-en">Perform castling</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- HISTORY MODAL -->
+    <div class="modal-overlay" id="modal-history">
+        <div class="modal">
+            <button class="modal-close" id="close-history">✕</button>
+            <div class="modal-title">📜 Move History</div>
+            <div class="move-history" id="move-history-list">
+                <p style="text-align:center; color: var(--text-light-secondary); font-size: 0.85rem;">No moves yet</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- SETTINGS MODAL -->
+    <div class="modal-overlay" id="modal-settings">
+        <div class="modal">
+            <button class="modal-close" id="close-settings">✕</button>
+            <div class="modal-title">⚙ Settings</div>
+
+            <div class="modal-section">Voice Language / ഭാഷ</div>
+            <div class="difficulty-selector" id="lang-selector">
+                <button class="diff-option selected" data-lang="ml-IN">
+                    <span class="diff-icon">🇮🇳</span>
+                    <span class="diff-label">മലയാളം</span>
+                </button>
+                <button class="diff-option" data-lang="en-IN">
+                    <span class="diff-icon">🇬🇧</span>
+                    <span class="diff-label">English</span>
+                </button>
+            </div>
+
+            <div class="modal-section">Sound / ശബ്ദം</div>
+            <div class="difficulty-selector" id="sound-selector">
+                <button class="diff-option selected" data-sound="on">
+                    <span class="diff-icon">🔊</span>
+                    <span class="diff-label">On</span>
+                </button>
+                <button class="diff-option" data-sound="off">
+                    <span class="diff-icon">🔇</span>
+                    <span class="diff-label">Off</span>
+                </button>
+            </div>
+
+            <div class="modal-section">Coach Mode / കോച്ച്</div>
+            <div class="difficulty-selector" id="coach-selector">
+                <button class="diff-option selected" data-coach="on">
+                    <span class="diff-icon">🎓</span>
+                    <span class="diff-label">On</span>
+                    <span class="diff-label-ml">ബ്ലണ്ടർ മുന്നറിയിപ്പ്</span>
+                </button>
+                <button class="diff-option" data-coach="off">
+                    <span class="diff-icon">⚡</span>
+                    <span class="diff-label">Off</span>
+                    <span class="diff-label-ml">വേഗത്തിൽ കളിക്കുക</span>
+                </button>
+            </div>
+
+            <div class="modal-section">Custom Intro Voice / ആമുഖ സന്ദേശം</div>
+            <div class="intro-input-group">
+                <textarea id="intro-text-input" class="intro-textarea" placeholder="Enter custom Malayalam intro speech..."></textarea>
+                <div class="intro-btn-row">
+                    <button class="intro-action-btn" id="btn-test-intro">🔊 Test Intro</button>
+                    <button class="intro-action-btn" id="btn-save-intro">💾 Save Intro</button>
+                    <button class="intro-action-btn" id="btn-reset-intro">🔄 Default</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PROMOTION MODAL -->
+    <div class="modal-overlay" id="modal-promotion">
+        <div class="modal">
+            <div class="modal-title">♛ Pawn Promotion</div>
+            <p
+                style="text-align:center; color: var(--text-light-secondary); font-size: 0.85rem; margin-bottom: 12px; font-family: 'Noto Sans Malayalam', sans-serif;">
+                ഏത് കരുവാക്കണം? / Choose a piece
+            </p>
+            <div class="promotion-options" id="promotion-options">
+                <button class="promotion-piece" data-piece="q" title="Queen / മന്ത്രി">♛</button>
+                <button class="promotion-piece" data-piece="r" title="Rook / തേര്">♜</button>
+                <button class="promotion-piece" data-piece="b" title="Bishop / ആന">♝</button>
+                <button class="promotion-piece" data-piece="n" title="Knight / കുതിര">♞</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME OVER MODAL -->
+    <div class="modal-overlay" id="modal-game-over">
+        <div class="modal">
+            <div class="modal-title" id="game-over-title">Game Over</div>
+            <div class="game-result">
+                <div class="result-icon" id="result-icon">♔</div>
+                <div class="result-text" id="result-text">Checkmate!</div>
+                <div class="result-detail" id="result-detail"></div>
+            </div>
+            <button class="modal-btn" id="game-over-new">
+                <span class="btn-emoji">⚔</span>
+                <span class="btn-text">
+                    <span class="primary">New Game</span>
+                    <span class="secondary">പുതിയ കളി</span>
+                </span>
+            </button>
+            <button class="modal-btn" id="game-over-close">
+                <span class="btn-emoji">📋</span>
+                <span class="btn-text">
+                    <span class="primary">Review Board</span>
+                    <span class="secondary">ബോർഡ് കാണുക</span>
+                </span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ==================== SCRIPTS ==================== -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
