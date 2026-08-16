@@ -327,6 +327,85 @@ body {
     margin-bottom: 12px;
     padding-bottom: 8px;
     border-bottom: 1px solid rgba(139, 105, 20, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* --- UI Commands Panel --- */
+#ui-commands-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 380px;
+    overflow-y: auto;
+}
+
+.panel-badge-ml {
+    font-family: 'Noto Sans Malayalam', sans-serif;
+    font-size: 0.65rem;
+    color: var(--text-gold);
+    font-weight: 500;
+    opacity: 0.85;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.ui-commands-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cmd-category {
+    background: rgba(13, 10, 6, 0.5);
+    border: 1px solid rgba(139, 105, 20, 0.25);
+    border-radius: 6px;
+    padding: 7px 8px;
+}
+
+.cmd-category-title {
+    font-family: 'Cinzel', serif;
+    font-size: 0.66rem;
+    font-weight: 700;
+    color: var(--text-gold);
+    margin-bottom: 5px;
+    letter-spacing: 0.5px;
+}
+
+.cmd-chip-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.cmd-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 3px 6px;
+    background: rgba(36, 26, 13, 0.6);
+    border: 1px solid rgba(168, 136, 64, 0.25);
+    border-radius: 4px;
+    font-size: 0.72rem;
+    transition: all 0.2s ease;
+}
+
+.cmd-chip:hover {
+    background: rgba(212, 160, 23, 0.18);
+    border-color: var(--gold-mid);
+}
+
+.cmd-trigger {
+    font-family: 'Noto Sans Malayalam', sans-serif;
+    font-weight: 700;
+    color: var(--gold-bright);
+}
+
+.cmd-label {
+    font-size: 0.65rem;
+    color: var(--text-light-secondary);
+    font-style: italic;
 }
 
 /* --- Game Status Panel --- */

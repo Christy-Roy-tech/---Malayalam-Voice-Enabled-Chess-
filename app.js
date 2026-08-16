@@ -122,6 +122,12 @@ const ML_COMMANDS = {
     friendGame: ['സുഹൃത്ത്', 'ഫ്രണ്ട്', 'friend', 'രണ്ടുപേർ', 'two player', 'multiplayer'],
     stopListening: ['നിർത്തുക', 'സ്റ്റോപ്പ്', 'stop listening', 'മൈക്ക് ഓഫ്'],
     startListening: ['കേൾക്കുക', 'മൈക്ക് ഓൺ', 'listen', 'start listening'],
+    // Settings, navigation & UI options
+    settings: ['സെറ്റിംഗ്സ്', 'ക്രമീകരണങ്ങൾ', 'settings', 'ഓപ്ഷൻ', 'options'],
+    history: ['ഹിസ്റ്ററി', 'നീക്കങ്ങൾ', 'history', 'moves list', 'ലിസ്റ്റ്'],
+    flip: ['തിരിക്കുക', 'ബോർഡ് തിരിക്കുക', 'flip', 'rotate', 'ഫ്ലിപ്'],
+    soundToggle: ['ശബ്ദം', 'സൗണ്ട്', 'sound', 'mute', 'unmute'],
+
     // Promotion via voice
     promoteQueen: ['മന്ത്രി', 'ക്വീൻ', 'queen'],
     promoteRook: ['തേര്', 'റൂക്ക്', 'rook'],
@@ -1116,6 +1122,24 @@ function processVoiceCommand(text) {
     }
     if (matchCommand(lower, ML_COMMANDS.hint)) {
         showHintToUser();
+        return;
+    }
+    if (matchCommand(lower, ML_COMMANDS.settings)) {
+        closeAllModals();
+        openModal('modal-settings');
+        showToast('⚙ Settings opened / സെറ്റിംഗ്സ്', 'info');
+        return;
+    }
+    if (matchCommand(lower, ML_COMMANDS.history)) {
+        closeAllModals();
+        openModal('modal-history');
+        showToast('📜 Move history / നീക്കങ്ങൾ', 'info');
+        return;
+    }
+    if (matchCommand(lower, ML_COMMANDS.flip)) {
+        App.isBoardFlipped = !App.isBoardFlipped;
+        document.getElementById('chess-board').classList.toggle('flipped', App.isBoardFlipped);
+        showToast('🔄 Board flipped / ബോർഡ് തിരിച്ചു', 'info');
         return;
     }
     if (matchCommand(lower, ML_COMMANDS.castle)) {
