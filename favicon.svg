@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fff2a8"/>
+      <stop offset="45%" stop-color="#d4af37"/>
+      <stop offset="100%" stop-color="#8a6114"/>
+    </linearGradient>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#241a0d"/>
+      <stop offset="100%" stop-color="#0c0906"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1.5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Base Rounded Shield -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bgGrad)" stroke="url(#goldGrad)" stroke-width="2.5"/>
+
+  <!-- Voice Soundwave Arcs (Top Right) -->
+  <path d="M46 14 A 18 18 0 0 1 54 26" fill="none" stroke="url(#goldGrad)" stroke-width="2.2" stroke-linecap="round" opacity="0.85"/>
+  <path d="M42 18 A 12 12 0 0 1 48 26" fill="none" stroke="url(#goldGrad)" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- Chess Knight Icon -->
+  <g fill="url(#goldGrad)" filter="url(#glow)">
+    <!-- Base -->
+    <path d="M16 52 L48 52 C48 49 45 47 43 47 L21 47 C19 47 16 49 16 52 Z"/>
+    <path d="M19 46 L45 46 L43 42 L21 42 Z"/>
+    
+    <!-- Knight Body & Head -->
+    <path d="M22 41 C21 37 19 32 23 27 C24 25.5 25 24 23 22 C21.5 20.5 20.5 21 19 23 C17.5 25 15 27 13 26 C12 25.5 12 24 14 22 C17 19 22 15 28 15 C33 15 38 18 39 23 C40 28 42 34 43 41 Z"/>
+    
+    <!-- Mane details -->
+    <path d="M37 20 C34 17 31 16 28 16 C31 19 33 24 33 28 C34 26 36 22 37 20 Z" fill="#fff5be" opacity="0.6"/>
+    
+    <!-- Eye -->
+    <circle cx="23" cy="20" r="1.8" fill="#120c06"/>
+    <circle cx="23.5" cy="19.5" r="0.6" fill="#ffffff"/>
+
+    <!-- Muzzle / Nostril -->
+    <circle cx="15.5" cy="24.5" r="0.9" fill="#120c06"/>
+  </g>
+</svg>
