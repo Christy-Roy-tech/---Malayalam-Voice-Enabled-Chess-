@@ -1200,6 +1200,35 @@ function processVoiceCommand(text) {
         setTimeout(() => stopListening(), 1500);
         return;
     }
+    if (matchCommand(lower, ML_COMMANDS.startListening)) {
+        startListening();
+        speakML('കേൾക്കുന്നു', 'Listening started');
+        showToast('🎤 Microphone active / മൈക്ക് ഓൺ', 'info');
+        return;
+    }
+    if (matchCommand(lower, ML_COMMANDS.soundToggle)) {
+        App.soundEnabled = !App.soundEnabled;
+        const soundBtns = document.querySelectorAll('#sound-selector .diff-option');
+        soundBtns.forEach(b => {
+            b.classList.toggle('selected', (b.dataset.sound === 'on') === App.soundEnabled);
+        });
+        const msg = App.soundEnabled ? '🔊 Sound enabled / ശബ്ദം ഓൺ' : '🔇 Sound muted / ശബ്ദം ഓഫ്';
+        showToast(msg, 'info');
+        if (App.soundEnabled) speakML('ശബ്ദം ഓൺ ചെയ്തു', 'Sound turned on');
+        return;
+    }
+    if (matchCommand(lower, ML_COMMANDS.startGame)) {
+        const newGameModal = document.getElementById('modal-new-game');
+        const friendModal = document.getElementById('modal-friend-game');
+        if (newGameModal && newGameModal.classList.contains('active')) {
+            document.getElementById('start-bot-game').click();
+            return;
+        }
+        if (friendModal && friendModal.classList.contains('active')) {
+            document.getElementById('start-friend-game').click();
+            return;
+        }
+    }
 
     // If bot is currently thinking, tell user to wait
     if (App.isBotThinking) {
@@ -1528,6 +1557,13 @@ function matchCommand(text, commands) {
     return commands.some(cmd => text.includes(cmd.toLowerCase()));
 }
 
+
+function parseFile(token) {
+    if (!token) return null;
+    const clean = token.toLowerCase().trim();
+    if (clean.length === 1 && /^[a-h]$/.test(clean)) return clean;
+    return ML_FILE_MAP[clean] || null;
+}
 
 function extractFile(tokens) {
     for (const token of tokens) {
@@ -1939,6 +1975,16 @@ function initUI() {
         });
     });
 
+    // Coach Mode selector
+    document.querySelectorAll('#coach-selector .diff-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#coach-selector .diff-option').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            App.coachMode = btn.dataset.coach === 'on';
+            showToast(App.coachMode ? '🎓 Coach Mode ON / കോച്ച് സജീവം' : '⚡ Coach Mode OFF / കോച്ച് ഓഫാക്കി', 'info');
+        });
+    });
+
     // Custom Introduction Settings controls
     const introInput = document.getElementById('intro-text-input');
     if (introInput) {
@@ -2250,9 +2296,17 @@ function playMoveSound(move) {
 async function initWakeLock() {
     if ('wakeLock' in navigator) {
         try {
-            await navigator.wakeLock.request('screen');
+            App.wakeLock = await navigator.wakeLock.request('screen');
         } catch (e) {
             console.log('Wake Lock not available:', e);
         }
     }
 }
+
+document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && 'wakeLock' in navigator) {
+        try {
+            App.wakeLock = await navigator.wakeLock.request('screen');
+        } catch (e) {}
+    }
+});

@@ -7,6 +7,12 @@
 
 /* --- CSS Variables / Design Tokens --- */
 :root {
+    /* Safe Area Insets & Dynamic Viewport */
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+
     /* Backgrounds */
     --bg-deepest: #060402;
     --bg-primary: #0d0a06;
@@ -66,12 +72,12 @@
     --shadow-glow-gold: 0 0 15px rgba(212, 160, 23, 0.4);
     --shadow-glow-red: 0 0 15px rgba(255, 50, 50, 0.5);
 
-    /* Layout */
+    /* Layout Defaults */
     --sidebar-width: 200px;
-    --board-size: min(55vh, 55vw, 480px);
-    --toolbar-height: 56px;
-    --command-height: 56px;
-    --topbar-height: 70px;
+    --board-size: min(55vh, 52vw, 480px);
+    --toolbar-height: calc(56px + var(--sab));
+    --command-height: 52px;
+    --topbar-height: calc(68px + var(--sat));
 
     /* Transitions */
     --transition-fast: 0.15s ease;
@@ -84,22 +90,27 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
 }
 
 html, body {
     width: 100%;
     height: 100%;
+    height: 100dvh;
     overflow: hidden;
     font-family: 'Noto Sans Malayalam', 'Cinzel', serif;
     background: var(--bg-deepest);
     color: var(--text-light);
     user-select: none;
     -webkit-user-select: none;
+    touch-action: manipulation;
 }
 
 body {
     display: flex;
     flex-direction: column;
+    padding-left: var(--sal);
+    padding-right: var(--sar);
     background:
         radial-gradient(ellipse at 20% 50%, rgba(139, 105, 20, 0.08) 0%, transparent 60%),
         radial-gradient(ellipse at 80% 30%, rgba(139, 105, 20, 0.05) 0%, transparent 50%),
@@ -640,6 +651,20 @@ body {
     height: var(--board-size);
     border: 2px solid var(--gold-darkest);
     position: relative;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#chess-board.flipped {
+    transform: rotate(180deg);
+}
+
+#chess-board.flipped .piece {
+    transform: rotate(180deg);
+}
+
+#chess-board.flipped .coord-file,
+#chess-board.flipped .coord-rank {
+    transform: rotate(180deg);
 }
 
 .square {
@@ -647,7 +672,8 @@ body {
     align-items: center;
     justify-content: center;
     position: relative;
-    cursor: default;
+    cursor: pointer;
+    touch-action: manipulation;
     transition: background-color var(--transition-fast);
 }
 
@@ -1444,125 +1470,553 @@ body {
 }
 
 /* ========================================================================
-   RESPONSIVE DESIGN
+   RESPONSIVE DESIGN (Phones & Tablets)
    ======================================================================== */
 
-/* Tablets and small screens */
-@media (max-width: 900px) {
+/* --- Tablet Devices (Portrait & Landscape: 641px to 1024px) --- */
+@media (max-width: 1024px) {
     :root {
-        --sidebar-width: 160px;
-        --board-size: min(50vh, 50vw, 400px);
-    }
-
-    .player-card { min-width: 140px; padding: 6px 10px; }
-    .player-name { font-size: 0.75rem; }
-    .player-subtitle { font-size: 0.6rem; }
-}
-
-/* Mobile / Phone */
-@media (max-width: 640px) {
-    :root {
-        --board-size: min(85vw, 85vw, 380px);
-        --topbar-height: 60px;
-        --command-height: 48px;
-        --toolbar-height: 52px;
-    }
-
-    #top-bar {
-        padding: 0 8px;
-    }
-
-    .player-card {
-        min-width: auto;
-        padding: 4px 8px;
-        gap: 6px;
-    }
-
-    .player-avatar { width: 32px; height: 32px; font-size: 1.1rem; }
-    .player-name { font-size: 0.7rem; }
-    .player-subtitle { display: none; }
-    .player-rating { font-size: 0.6rem; }
-
-    #top-bar .center-emblem {
-        font-size: 0.8rem;
-    }
-
-    .center-emblem .emblem-icon {
-        font-size: 1.1rem;
+        --sidebar-width: clamp(140px, 20vw, 185px);
+        --board-size: min(48vh, 48vw, 420px);
+        --topbar-height: calc(64px + var(--sat));
     }
 
     #main-content {
+        gap: 10px;
+        padding: 8px 12px;
+    }
+
+    .player-card {
+        min-width: 130px;
+        padding: 6px 10px;
+        gap: 8px;
+    }
+
+    .player-avatar {
+        width: 36px;
+        height: 36px;
+        font-size: 1.3rem;
+    }
+
+    .player-name {
+        font-size: 0.78rem;
+    }
+
+    .player-subtitle {
+        font-size: 0.58rem;
+    }
+
+    .panel {
+        padding: 10px;
+    }
+
+    .panel-title {
+        font-size: 0.72rem;
+        margin-bottom: 8px;
+        padding-bottom: 6px;
+    }
+
+    .mic-button {
+        width: 54px;
+        height: 54px;
+    }
+
+    .mic-button .mic-icon {
+        font-size: 1.4rem;
+    }
+
+    #ui-commands-panel {
+        max-height: 280px;
+    }
+}
+
+/* --- Mobile Phones in Portrait Mode (<= 640px) --- */
+@media (max-width: 640px) {
+    :root {
+        --board-size: min(90vw, calc(100dvh - 280px), 360px);
+        --topbar-height: calc(54px + var(--sat));
+        --command-height: 46px;
+        --toolbar-height: calc(52px + var(--sab));
+    }
+
+    /* Top Bar Phone Layout */
+    #top-bar {
+        padding: var(--sat) 6px 0;
+        gap: 4px;
+    }
+
+    .player-card {
+        min-width: 0;
+        flex: 1;
+        max-width: 140px;
+        padding: 4px 6px;
+        gap: 6px;
+        border-radius: 6px;
+    }
+
+    .player-avatar {
+        width: 30px;
+        height: 30px;
+        font-size: 1.1rem;
+        border-width: 1.5px;
+    }
+
+    .player-name {
+        font-size: 0.68rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .player-subtitle {
+        display: none;
+    }
+
+    .player-rating {
+        font-size: 0.6rem;
+    }
+
+    #top-bar .center-emblem {
+        font-size: 0.75rem;
+        letter-spacing: 0.5px;
+        padding: 0 4px;
+        flex-shrink: 0;
+    }
+
+    .center-emblem .emblem-icon {
+        font-size: 1rem;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 2px;
+    }
+
+    /* Main Scrollable Content Phone Layout */
+    #main-content {
         flex-direction: column;
         align-items: center;
-        padding: 8px;
-        gap: 8px;
-    }
-
-    .sidebar {
-        width: 100%;
-        flex-direction: row;
-        gap: 8px;
-    }
-
-    .sidebar.left {
-        order: 2;
-    }
-
-    .sidebar.right {
-        order: 3;
+        justify-content: flex-start;
+        padding: 6px 8px 16px;
+        gap: 10px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        min-height: 0;
     }
 
     #board-container {
         order: 1;
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        padding: 2px 0;
+        flex-shrink: 0;
+    }
+
+    #board-wrapper {
+        padding: 3px;
+        border-radius: 6px;
+    }
+
+    /* Left and Right Sidebars into Clean Responsive Cards */
+    .sidebar {
+        width: 100%;
+        max-width: 420px;
+        flex-direction: column;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+
+    .sidebar.left {
+        order: 2;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    .sidebar.right {
+        order: 3;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
     }
 
     .sidebar .panel {
-        flex: 1;
         padding: 10px;
+        border-radius: 8px;
     }
 
-    .panel-title { font-size: 0.65rem; margin-bottom: 8px; }
+    .panel-title {
+        font-size: 0.68rem;
+        margin-bottom: 6px;
+        padding-bottom: 5px;
+    }
 
-    #game-status-panel .status-item { padding: 3px 0; }
-    #game-status-panel .status-label { font-size: 0.6rem; }
-    #game-status-panel .status-value { font-size: 0.75rem; }
+    #game-status-panel .status-item {
+        padding: 3px 0;
+        gap: 4px;
+    }
 
-    .mic-button { width: 48px; height: 48px; }
-    .mic-button .mic-icon { font-size: 1.2rem; }
-    .mic-status { font-size: 0.65rem; }
+    #game-status-panel .status-label {
+        font-size: 0.62rem;
+    }
 
-    .hint-content { font-size: 0.7rem; }
+    #game-status-panel .status-value {
+        font-size: 0.72rem;
+    }
 
-    #command-text { font-size: 0.8rem; max-width: 85%; }
-    #command-text .command-prefix { font-size: 1rem; }
+    .mic-container {
+        padding: 6px 0;
+        gap: 6px;
+    }
 
-    .toolbar-btn { padding: 4px 8px; }
-    .toolbar-btn .btn-icon { font-size: 1.1rem; }
-    .toolbar-btn .btn-label { font-size: 0.5rem; }
+    .mic-button {
+        width: 52px;
+        height: 52px;
+    }
 
-    .modal { padding: 20px; max-width: 95%; }
-    .modal-title { font-size: 1.2rem; }
+    .mic-button .mic-icon {
+        font-size: 1.3rem;
+    }
+
+    .mic-status {
+        font-size: 0.68rem;
+    }
+
+    .hint-content {
+        font-size: 0.72rem;
+        line-height: 1.4;
+    }
+
+    .hint-content .hint-icon {
+        font-size: 1.2rem;
+        margin-bottom: 4px;
+    }
+
+    /* Command Chips in Responsive Grid */
+    #ui-commands-panel {
+        max-height: 240px;
+    }
+
+    .cmd-chip-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 4px;
+    }
+
+    .cmd-chip {
+        padding: 5px 8px;
+        font-size: 0.72rem;
+        min-height: 32px;
+    }
+
+    /* Command Banner Phone Layout */
+    #command-banner {
+        height: var(--command-height);
+        padding: 0 10px;
+    }
+
+    #command-banner::before,
+    #command-banner::after {
+        font-size: 0.75rem;
+    }
+
+    #command-banner::before { left: 8px; }
+    #command-banner::after { right: 8px; }
+
+    #command-text {
+        font-size: 0.78rem;
+        max-width: 86%;
+        letter-spacing: 0.5px;
+    }
+
+    #command-text .command-prefix {
+        font-size: 1rem;
+    }
+
+    /* Bottom Toolbar Phone Layout */
+    #bottom-toolbar {
+        height: var(--toolbar-height);
+        padding: 0 4px var(--sab);
+    }
+
+    .toolbar-group {
+        gap: 2px;
+    }
+
+    .toolbar-btn {
+        padding: 4px 6px;
+        min-width: 44px;
+        min-height: 44px;
+        justify-content: center;
+    }
+
+    .toolbar-btn .btn-icon {
+        font-size: 1.15rem;
+    }
+
+    .toolbar-btn .btn-label {
+        font-size: 0.5rem;
+        letter-spacing: 0.5px;
+    }
+
+    /* Toast Notification Phone Positioning */
+    #toast-container {
+        top: calc(58px + var(--sat));
+        right: 50%;
+        transform: translateX(50%);
+        width: min(92vw, 340px);
+        align-items: center;
+    }
+
+    .toast {
+        width: 100%;
+        max-width: 100%;
+        font-size: 0.78rem;
+        padding: 10px 14px;
+    }
+
+    /* Modals on Phone */
+    .modal {
+        padding: 20px 16px;
+        width: 94%;
+        max-width: 380px;
+        max-height: calc(86dvh - var(--sat) - var(--sab));
+        border-radius: 10px;
+    }
+
+    .modal-title {
+        font-size: 1.15rem;
+        margin-bottom: 16px;
+    }
+
+    .modal-close {
+        top: 10px;
+        right: 12px;
+        width: 36px;
+        height: 36px;
+        font-size: 1.1rem;
+    }
+
+    .modal-btn {
+        padding: 12px 14px;
+        font-size: 0.82rem;
+        min-height: 48px;
+    }
+
+    .difficulty-selector {
+        gap: 6px;
+        margin: 12px 0;
+    }
+
+    .diff-option {
+        padding: 8px 4px;
+        min-height: 48px;
+    }
+
+    .diff-option .diff-icon {
+        font-size: 1.2rem;
+        margin-bottom: 2px;
+    }
+
+    .diff-option .diff-label {
+        font-size: 0.6rem;
+    }
+
+    .color-option {
+        width: 52px;
+        height: 52px;
+        font-size: 1.6rem;
+    }
+
+    .promotion-options {
+        gap: 8px;
+        margin: 14px 0;
+    }
+
+    .promotion-piece {
+        width: 52px;
+        height: 52px;
+        font-size: 1.8rem;
+    }
+
+    .start-btn {
+        padding: 12px;
+        font-size: 0.88rem;
+        min-height: 48px;
+    }
 }
 
-/* Very small phones */
+/* --- Compact Phones (<= 380px) --- */
 @media (max-width: 380px) {
     :root {
-        --board-size: min(92vw, 92vw, 340px);
+        --board-size: min(94vw, 310px);
+        --topbar-height: calc(50px + var(--sat));
+        --command-height: 42px;
+        --toolbar-height: calc(50px + var(--sab));
     }
 
-    .sidebar { display: none; }
+    #top-bar .center-emblem {
+        display: none;
+    }
 
-    #top-bar .center-emblem { display: none; }
+    .player-card {
+        padding: 3px 5px;
+    }
+
+    .player-avatar {
+        width: 26px;
+        height: 26px;
+        font-size: 0.95rem;
+    }
+
+    .player-name {
+        font-size: 0.62rem;
+    }
+
+    .sidebar.left {
+        grid-template-columns: 1fr;
+    }
+
+    .toolbar-btn {
+        padding: 2px 4px;
+        min-width: 38px;
+    }
+
+    .toolbar-btn .btn-icon {
+        font-size: 1rem;
+    }
+
+    .toolbar-btn .btn-label {
+        font-size: 0.45rem;
+    }
 }
 
-/* Landscape mode optimization */
-@media (max-height: 500px) and (orientation: landscape) {
+/* --- Mobile Landscape Mode (height <= 520px) --- */
+@media (max-height: 520px) and (orientation: landscape) {
     :root {
-        --board-size: min(60vh, 40vw, 350px);
-        --topbar-height: 50px;
-        --command-height: 40px;
-        --toolbar-height: 46px;
+        --board-size: min(68vh, 38vw, 310px);
+        --topbar-height: calc(42px + var(--sat));
+        --command-height: 38px;
+        --toolbar-height: calc(44px + var(--sab));
     }
 
-    .sidebar .panel { padding: 8px; }
+    #top-bar {
+        padding: var(--sat) 10px 0;
+    }
+
+    .player-card {
+        padding: 2px 8px;
+        min-width: 110px;
+    }
+
+    .player-avatar {
+        width: 26px;
+        height: 26px;
+        font-size: 0.95rem;
+    }
+
+    .player-name {
+        font-size: 0.65rem;
+    }
+
+    .player-subtitle {
+        display: none;
+    }
+
+    #top-bar .center-emblem {
+        font-size: 0.72rem;
+    }
+
+    .center-emblem .emblem-icon {
+        font-size: 0.9rem;
+        display: inline-block;
+    }
+
+    #main-content {
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 4px 10px;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    #board-container {
+        order: 1;
+        flex-shrink: 0;
+    }
+
+    .sidebar {
+        height: 100%;
+        max-height: calc(100vh - var(--topbar-height) - var(--command-height) - var(--toolbar-height) - 16px);
+        overflow-y: auto;
+    }
+
+    .sidebar.left {
+        order: 2;
+        width: 140px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .sidebar.right {
+        order: 3;
+        width: 180px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .sidebar .panel {
+        padding: 6px 8px;
+    }
+
+    .panel-title {
+        font-size: 0.62rem;
+        margin-bottom: 4px;
+        padding-bottom: 3px;
+    }
+
+    .mic-container {
+        padding: 4px 0;
+        gap: 4px;
+    }
+
+    .mic-button {
+        width: 38px;
+        height: 38px;
+    }
+
+    .mic-button .mic-icon {
+        font-size: 1rem;
+    }
+
+    .mic-status {
+        font-size: 0.6rem;
+    }
+
+    #ui-commands-panel {
+        max-height: 120px;
+    }
+
+    .toolbar-btn {
+        padding: 2px 8px;
+        flex-direction: row;
+        gap: 4px;
+    }
+
+    .toolbar-btn .btn-icon {
+        font-size: 0.95rem;
+    }
+
+    .toolbar-btn .btn-label {
+        font-size: 0.55rem;
+    }
+
+    .modal {
+        padding: 16px;
+        max-height: 92vh;
+    }
 }
