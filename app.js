@@ -1264,8 +1264,8 @@ function executeFastMove(from, to, pieceType, promotionPiece) {
 
     if (!success) {
         playErrorSound();
-        setCommandText(`❌ Illegal move: ${from} → ${to}`);
-        showToast('ആ നീക്കം സാധ്യമല്ല — Invalid move', 'warning');
+        setCommandText(`❌ തെറ്റായ നീക്കം: ${from} → ${to} സാധ്യമല്ല (Illegal Move)`);
+        showToast(`❌ ${from} → ${to} സാധ്യമല്ല — Invalid move`, 'warning');
         resetStagedMove();
         return false;
     }
@@ -1383,6 +1383,15 @@ function handleInteractiveMoveInput(text) {
             playSelectionSound();
             return;
         }
+
+        // Neither destination nor from-square valid for this piece -> Explicit Fault Move!
+        playErrorSound();
+        const pieceNameML = PIECE_NAMES_ML[pieceType] || pieceType;
+        const pieceNameEN = PIECE_NAMES_EN[pieceType] || pieceType;
+        setCommandText(`❌ ${pieceNameML} (${pieceNameEN}) ${targetSq} ലേക്ക് സാധ്യമല്ല (Illegal Move)`);
+        showToast(`❌ ${pieceNameML} → ${targetSq} സാധ്യമല്ല`, 'warning');
+        resetStagedMove();
+        return;
     }
 
     // CASE 3: Only 1 Square provided
@@ -1422,6 +1431,14 @@ function handleInteractiveMoveInput(text) {
                 App.stagedMove.to = sq;
                 playSelectionSound();
                 return;
+            } else {
+                // Illegal move for staged piece
+                playErrorSound();
+                const pML = PIECE_NAMES_ML[App.stagedMove.piece] || App.stagedMove.piece;
+                setCommandText(`❌ ${pML} ${sq} ലേക്ക് സാധ്യമല്ല (Illegal Move)`);
+                showToast(`❌ ${pML} → ${sq} സാധ്യമല്ല`, 'warning');
+                resetStagedMove();
+                return;
             }
         }
 
@@ -1442,6 +1459,13 @@ function handleInteractiveMoveInput(text) {
             executeFastMove(pawnMoves[0].from, sq, 'p');
             return;
         }
+
+        // If square is spoken alone and no pawn or piece can move there -> Explicit Fault Move!
+        playErrorSound();
+        setCommandText(`❌ തെറ്റായ നീക്കം: ${sq} ലേക്ക് സാധ്യമല്ല (Illegal Square)`);
+        showToast(`❌ ${sq} ലേക്ക് നീക്കം സാധ്യമല്ല`, 'warning');
+        resetStagedMove();
+        return;
     }
 
     // CASE 4: Only Piece Name provided (e.g. "കുതിര" / "Knight")
@@ -2060,7 +2084,7 @@ function setCommandText(text, isInterim) {
         display.style.opacity = '1';
     }
 
-    // Auto-restore banner to ready state after error/unknown command so it never stays stuck
+    // Fast auto-restore banner to ready state after error/fault move so user can move instantly
     clearTimeout(App.bannerResetTimer);
     if (text.startsWith('❓') || text.startsWith('❌')) {
         App.bannerResetTimer = setTimeout(() => {
@@ -2076,7 +2100,7 @@ function setCommandText(text, isInterim) {
                 }
                 display.style.opacity = '1';
             }
-        }, 2000);
+        }, 1500);
     }
 }
 
