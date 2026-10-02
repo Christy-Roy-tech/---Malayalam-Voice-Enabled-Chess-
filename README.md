@@ -100,6 +100,16 @@ Players can speak moves in multiple natural formats:
 
 ---
 
+## 🎯 How Voice Accuracy Works
+
+- **Legality-constrained matching** – every speech alternative from the browser is matched against the *legal moves of the current position* (usually 20–40), not parsed as free text. A noisy transcript that maps to exactly one legal move is executed; low recogniser confidence alone never causes a "not understood".
+- **Sound-alike tolerance** – letters that sound alike (**B/C/D/E/G**, **A/H**) are tried as fallbacks *only if* the literal reading is illegal. If two moves are equally plausible the game asks *"Which one? 1) e2→e4 2) d2→d4"* – say **"ഒന്ന്"** or **"രണ്ട്"**.
+- **One utterance = one action** – interim and final speech results can no longer fire the same move twice.
+- **Silent misses** – an unrecognised phrase shows a message but plays **no error beep**, so the next command is never delayed.
+- **🌐 Auto language** – Settings → Voice Language → *Auto* switches between Malayalam (`ml-IN`) and English (`en-IN`) if one keeps failing. Pick a fixed language to disable switching.
+- **Whole-word command matching** – English commands match whole words only, so "knight" can never trigger "no/cancel".
+- **Malayalam spelling variants** – chillu letters, final *u/virama* (ഒന്ന് / ഒന്നു / ഒന്ന), case suffixes (-ൽ, -ലേക്ക്, -യെ) and joined words (ഇരണ്ട്) are normalised.
+
 ## 🧠 Chess Engine & Coach
 
 The application includes an internal chess intelligence engine:

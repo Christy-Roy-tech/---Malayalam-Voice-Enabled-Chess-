@@ -1,0 +1,7 @@
+# Local voice recordings; keep raw audio out of the repository.
+/New/chess_voice_dataset/
+/chess_voice_dataset/*
+
+# Keep the dataset documentation trackable.
+!/chess_voice_dataset/
+!/chess_voice_dataset/README.md

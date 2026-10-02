@@ -1,0 +1,232 @@
+CHATHURANGAM VOICE COMMANDS
+============================
+
+This file documents the voice inputs currently accepted by app.js.
+Commands are matched as phrases contained in the recognized speech, so Malayalam,
+English, and mixed Malayalam-English input can be used.
+
+
+1. CHESS MOVE INPUT
+-------------------
+
+Speak a move in any of these forms:
+
+  From square + to square
+    Examples: "e2 e4", "ഇ രണ്ട് ഇ നാല്"
+    Function: moves the piece from the first square to the second square.
+
+  Piece + destination square
+    Examples: "കുതിര f3", "Knight f3", "കാലാൾ ഡി നാല്"
+    Function: finds the legal piece that can reach the destination and moves it.
+
+  Piece + starting square, then destination square
+    Examples: "കുതിര" then "g1" then "f3"
+    Function: selects the piece, highlights its legal moves, then moves it.
+
+  Starting square + destination square
+    Examples: "g1" then "f3"
+    Function: selects the piece on the first square, then moves it.
+
+  One square
+    Examples: "e4", "ഇ നാല്"
+    Function: moves a pawn to that square when exactly one legal pawn move exists,
+    or selects a friendly piece already on that square.
+
+  Piece name only
+    Examples: "കുതിര", "Knight"
+    Function: selects the only movable piece of that type, or highlights all
+    possible pieces when more than one is available.
+
+  Standard chess notation
+    Examples: "Nf3", "e4", "O-O"
+    Function: attempts a direct chess.js move using SAN/sloppy notation.
+
+If a move is illegal, the board remains unchanged and an error is reported.
+
+
+2. PIECE NAMES
+--------------
+
+  King:   രാജാവ്, രാജാവിനെ, രാജാവ, കിങ്, കിംഗ്, കിങ്ങിനെ, king
+  Queen:  മന്ത്രി, മന്ത്രിയെ, റാണി, റാണിയെ, ക്വീൻ, ക്വീനിനെ, queen, rani
+  Rook:   തേര്, തേര, തേരനെ, തേർ, കോട്ട, കോട്ടയെ, റൂക്ക്, റൂക്കിനെ, rook
+  Bishop: ആന, ആനയെ, ബിഷപ്പ്, ബിഷപ്, ബിഷപ്പിനെ, bishop
+  Knight: കുതിര, കുതിരയെ, നൈറ്റ്, നൈറ്റിനെ, knight, horse
+  Pawn:   കാലാൾ, കാലാള്, കാലാളെ, കാലാളിനെ, പടയാളി, പടയാളിയെ,
+          പോൺ, പോണിനെ, pawn
+
+
+3. FILES / COLUMNS
+------------------
+
+  A: എ, ഏ, ആ, a, A, എയ്, എയി, ഏയ്, ആഹ്, aye, ay, eh
+  B: ബി, ബീ, b, B, bee, be, ബ
+  C: സി, സീ, c, C, see, sea
+  D: ഡി, ഡീ, d, D, dee, ദി, ദീ, ഡ
+  E: ഇ, ഈ, e, E, യി, യീ, ഇയ്, ഈയ്, ഇയ്യ്, ee, ea, ii
+  F: എഫ്, എഫ, f, F, ef, eff
+  G: ജി, ജീ, g, G, jee
+  H: എച്ച്, എച്ച, എയ്ച്ച്, എയിച്ച്, ഏച്ച്, ഏച്ച, ഹെച്ച്, ഹെച്ച,
+     ഹാ, ഹ, ഹ്, h, H, aitch, ach, he
+
+
+4. RANKS / ROWS
+----------------
+
+  1: ഒന്ന്, ഒന്നു, ഒന്ന, ഒൻ, ഒന്, ഒന്ന്‍, ഒന്ൻ, വൺ, വണ്, വന്, വാൻ,
+     1, one, on, won, ൧, first, ഫസ്റ്റ്, ഫസ്റ്റ, 1st
+  2: രണ്ട്, രണ്ടു, രണ്ട, ടു, 2, two, ൨, second, 2nd
+  3: മൂന്ന്, മൂന്നു, മൂന്ന, ത്രീ, 3, three, ൩, third, 3rd
+  4: നാല്, നാലു, നാല, ഫോർ, ഫോറ്, ഫോറ, ഫോറില്, ഫോറിൽ, 4, four, ൪, fourth, 4th
+  5: അഞ്ച്, അഞ്ചു, അഞ്ച, ഫൈവ്, 5, five, ൫, fifth, 5th
+  6: ആറ്, ആറു, ആറ, സിക്സ്, 6, six, ൬, sixth, 6th
+  7: ഏഴ്, ഏഴു, ഏഴ, സെവൻ, 7, seven, ൭, seventh, 7th
+  8: എട്ട്, എട്ടു, എട്ട, എയ്റ്റ്, 8, eight, ൮, eighth, 8th
+
+
+5. GAME COMMANDS
+-----------------
+
+  Help / command guide
+    Inputs: സഹായം, ഹെൽപ്, help, എന്താ ചെയ്യേണ്ടത്
+    Function: handleHelp() - opens the voice guide.
+
+  Undo
+    Inputs: പിൻവലിക്കുക, പിന്‍വലിക്കുക, അൺഡു, undo, back
+    Function: handleUndo() - undoes the last move. In bot mode it undoes the
+    bot move and the player's previous move together.
+
+  Resign
+    Inputs: കീഴടങ്ങുക, തോല്‍ക്കുക, റിസൈൻ, resign
+    Function: handleResign() - ends the game and declares the other side the winner.
+
+  Hint
+    Inputs: സൂചന, ഹിന്റ്, hint, സഹായിക്കൂ, best move, ബെസ്റ്റ്
+    Function: showHintToUser() - calculates and highlights a suggested move.
+
+  New bot game
+    Inputs: പുതിയ കളി, ന്യൂ ഗെയിം, new game, പുതിയഗെയിം, restart
+    Function: starts a fresh game against the bot as White.
+
+  Friend game
+    Inputs: സുഹൃത്ത്, ഫ്രണ്ട്, friend, രണ്ടുപേർ, two player, multiplayer
+    Function: starts a local two-player game.
+
+  Start a selected game
+    Inputs: ആരംഭിക്കുക, സ്റ്റാർട്ട്, start, തുടങ്ങുക, begin, play
+    Function: confirms the currently open new-game or friend-game dialog.
+
+
+6. CASTLING COMMANDS
+--------------------
+
+  Generic castle
+    Inputs: കോട്ട കെട്ടുക, കോട്ടകെട്ടുക, ക്യാസ്ൽ, castle, castling
+    Function: handleCastle() - performs legal kingside castling first, otherwise
+    legal queenside castling.
+
+  Kingside castle
+    Inputs: കിങ് സൈഡ്, രാജാവിന്റെ ഭാഗം, kingside, short castle, ഷോർട്ട്
+    Function: performs legal kingside castling.
+
+  Queenside castle
+    Inputs: ക്വീൻ സൈഡ്, മന്ത്രിയുടെ ഭാഗം, queenside, long castle, ലോങ്
+    Function: performs legal queenside castling.
+
+
+7. BOARD, AUDIO, AND MICROPHONE COMMANDS
+-----------------------------------------
+
+  Flip board
+    Inputs: തിരിക്കുക, ബോർഡ് തിരിക്കുക, flip, rotate, ഫ്ലിപ്
+    Function: toggles the board orientation.
+
+  Stop listening / microphone off
+    Inputs: നിർത്തുക, സ്റ്റോപ്പ്, stop listening, മൈക്ക് ഓഫ്
+    Function: stopListening() - stops speech recognition.
+
+  Start listening / microphone on
+    Inputs: കേൾക്കുക, മൈക്ക് ഓൺ, listen, start listening
+    Function: startListening() - starts speech recognition.
+
+  Toggle sound
+    Inputs: ശബ്ദം, സൗണ്ട്, sound, mute, unmute
+    Function: toggles game sound effects and spoken feedback.
+
+
+8. AI DIFFICULTY COMMANDS
+-------------------------
+
+  Easy / Beginner
+    Inputs: എളുപ്പം, ഈസി, easy, തുടക്കം, beginner
+    Function: sets botDepth to 2.
+
+  Medium / Intermediate
+    Inputs: ഇടത്തരം, മീഡിയം, medium, intermediate, നോർമൽ, normal
+    Function: sets botDepth to 4.
+
+  Hard / Expert
+    Inputs: കഠിനം, ഹാർഡ്, hard, expert, വിദഗ്ധൻ, difficult
+    Function: sets botDepth to 6.
+
+
+9. MODAL AND SELECTION COMMANDS
+-------------------------------
+
+  Close / go back
+    Inputs: ക്ലോസ്, അടയ്ക്കുക, അടക്ക്, ബാക്ക്, മടങ്ങുക, വേണ്ട, എക്സിറ്റ്,
+    close, back, exit, തുടങ്ങുക, തുടരുക, കളിക്കാം, കളി, hide
+    Function: when a modal is open, closeAllModals() closes it.
+
+  Cancel / clear selection
+    Inputs: വേണ്ട, ക്യാൻസൽ, cancel, no, മാറ്റുക, റദ്ദാക്കുക, വേണ്ടതില്ല,
+    നോ, തെറ്റാണ്, റോങ്, wrong, അല്ല
+    Function: resetStagedMove() clears the currently selected piece or square.
+
+Note: "വേണ്ട" is accepted by both Close and Cancel. With a modal open it closes
+that modal first; otherwise it clears the active move selection.
+
+
+10. PROMOTION COMMANDS
+----------------------
+
+When a pawn reaches the last rank, choose the promotion piece with:
+
+  Queen:  മന്ത്രി, ക്വീൻ, queen
+  Rook:   തേര്, റൂക്ക്, rook
+  Bishop: ആന, ബിഷപ്പ്, bishop
+  Knight: കുതിര, നൈറ്റ്, knight
+
+Function: completes the pending pawn promotion with the selected piece.
+
+
+11. SETTINGS AND NAVIGATION COMMANDS
+------------------------------------
+
+  Settings
+    Inputs: സെറ്റിംഗ്സ്, ക്രമീകരണങ്ങൾ, settings, ഓപ്ഷൻ, options
+    Function: opens the settings modal.
+
+  Move history
+    Inputs: ഹിസ്റ്ററി, നീക്കങ്ങൾ, history, moves list, ലിസ്റ്റ്
+    Function: opens the move history modal.
+
+
+12. COMMAND PROCESSING NOTES
+----------------------------
+
+  Main dispatcher: processVoiceCommand(text)
+  Command matching: matchCommand(text, aliases)
+  Move parser: handleInteractiveMoveInput(text)
+  Square parser: extractSquares(tokens)
+  Piece parser: extractPiece(tokens)
+  Castle handler: handleCastle(text)
+
+The speech recognizer listens continuously when enabled and can process Malayalam,
+English, or mixed-language phrases. The browser must support the Web Speech API,
+and microphone permission must be granted.
+
+The confirmation aliases defined in app.js (ശരി, ശരിയാണ്, യെസ്, ഓകെ, ok, okay,
+yes, proceed, move, done, go, and related forms) are reserved for confirmation,
+but the current dispatcher does not use them as a separate step. Valid moves are
+executed immediately after their source and destination are understood.

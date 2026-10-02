@@ -229,7 +229,7 @@ const App = {
     isBotThinking: false,
     coachMode: true,
     soundEnabled: true,
-    voiceLang: 'ml-IN',
+    voiceLang: 'auto',
     recognition: null,
     timer: null,
     elapsedSeconds: 0,
@@ -262,6 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initGame();
     initUI();
     initVoice();
+    initDiagnostics();
     initWakeLock();
 
     // Hide loading screen after brief delay
@@ -509,6 +510,8 @@ function tryMove(from, to, promotionPiece) {
 }
 
 function executeMove(move) {
+    VOICE.confirm = null;
+    VOICE.pendingChoice = null;
     // Reset staged move upon execution
     resetStagedMove();
 
@@ -548,7 +551,8 @@ function executeMove(move) {
 
     // Bot's turn
     if (App.gameMode === 'bot' && App.chess.turn() !== App.playerColor) {
-        setTimeout(() => botMove(), 500);
+        clearTimeout(App.botTimer);
+        App.botTimer = setTimeout(() => botMove(), 500);
     }
 
     // Show a random tip
@@ -841,186 +845,1069 @@ function showRandomTip() {
 
 
 // ============================================================
-// 8. MALAYALAM VOICE RECOGNITION
+// 8. VOICE ENGINE  (Malayalam + English, legality-constrained)
+// ------------------------------------------------------------
+// Design notes
+//  * The browser's recogniser (esp. ml-IN) often reports confidence = 0,
+//    so confidence is only a *soft weight*. Accuracy comes from matching
+//    every alternative against the LEGAL moves of the current position
+//    (there are only ~20-40 of them), tolerating known sound-alikes
+//    (b/d/e/c/g, a/h, 2/3, 7/8 ...) and asking when two moves tie.
+//  * Each utterance is acted on exactly once (no interim/final repeats).
+//  * "Not understood" is silent (no beep) so nothing blocks the next word.
+//  * Auto mode listens with ml-IN and en-IN sessions at the same time.
 // ============================================================
 
-function initVoice() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const VOICE = {
+    lang: 'ml-IN',          // language currently used by the recogniser
+    auto: true,             // auto-switch ml-IN <-> en-IN after repeated misses
+    handled: new Set(),     // result indexes already acted on in this session
+    stableTimer: null,
+    stableText: '',
+    failStreak: 0,
+    restartTimer: null,
+    restartDelay: 60,
+    lastKey: '',
+    lastAt: 0,
+    pendingChoice: null,
+    lastNetToast: 0
+};
 
+// ---------- extra vocabulary (merged into the original dictionaries) ----------
+ML_COMMANDS.castle.push('കാസ്ലിംഗ്', 'കാസ്റ്റ്ലിംഗ്', 'കാസ്റ്റിൽ', 'കാസിൽ', 'കോട്ട കെട്ട', 'കാസ്ലിങ്');
+ML_COMMANDS.undo.push('പിൻവലി', 'പിന്‍വലി', 'അണ്ടു', 'take back');
+ML_COMMANDS.resign.push('കീഴടങ്ങ', 'give up');
+ML_COMMANDS.help.push('ഹെൽപ്പ്', 'സഹായം');
+ML_COMMANDS.settings.push('സെറ്റിംഗ്', 'സെറ്റിങ്', 'സെറ്റിങ്സ്', 'ക്രമീകരണ', 'setting');
+ML_COMMANDS.flip.push('തിരിക്ക', 'ഫ്ലിപ്പ്');
+ML_COMMANDS.newGame.push('പുതിയകളി', 'ന്യൂഗെയിം', 'പുതിയ ഗെയിം', 'new match');
+ML_COMMANDS.stopListening.push('mic off', 'മൈക്ക് ഓഫ്');
+ML_COMMANDS.startListening.push('mic on');
+ML_COMMANDS.hint.push('suggest');
+
+// ---------- 8.1 text normalisation ----------
+const CHILLU = { 'ൻ': 'ന്', 'ർ': 'ര്', 'ൽ': 'ല്', 'ൾ': 'ള്', 'ൺ': 'ണ്', 'ൿ': 'ക്' };
+const HAS_ML = /[\u0d00-\u0d7f]/;
+
+function normText(s) {
+    return String(s || '').toLowerCase()
+        .replace(/[\u200c\u200d]/g, '')
+        .replace(/[ൻർൽൾൺൿ]/g, ch => CHILLU[ch])
+        .replace(/[\u0d66-\u0d6f]/g, ch => String(ch.charCodeAt(0) - 0x0d66));
+}
+
+// Dictionary key: normalised, and for Malayalam words the final virama / "u"
+// is dropped so ഒന്ന് / ഒന്നു / ഒന്ന all collapse to one key.
+function vkey(tok) {
+    let t = normText(tok).trim();
+    if (HAS_ML.test(t)) t = t.replace(/[്ു]$/, '');
+    return t;
+}
+
+const V = { file: new Map(), rank: new Map(), piece: new Map() };
+function fillMap(map, obj) {
+    for (const k in obj) {
+        const key = vkey(k);
+        if (key && !map.has(key)) map.set(key, obj[k]);
+    }
+}
+fillMap(V.file, ML_FILE_MAP);
+fillMap(V.rank, ML_RANK_MAP);
+fillMap(V.piece, ML_PIECE_MAP);
+
+fillMap(V.file, {
+    'ay': 'a', 'hey': 'a', 'ഏയ്': 'a',
+    'cee': 'c', 'si': 'c', 'സീ': 'c',
+    'de': 'd', 'di': 'd', 'ഡെ': 'd',
+    'ge': 'g', 'ji': 'g', 'ജെ': 'g', 'gee': 'g',
+    'ഹെച്ച്': 'h', 'etch': 'h', 'ഐച്ച്': 'h', 'ഏയ്ച്': 'h'
+});
+fillMap(V.rank, {
+    'ടൂ': '2', 'ട്ടു': '2', 'റ്റു': '2', 'too': '2', 'to': '2', 'tu': '2',
+    'ത്രി': '3', 'tree': '3',
+    'for': '4', 'fore': '4', 'ഫോ': '4',
+    'ഫൈവ': '5', 'sicks': '6', 'സെവെൻ': '7',
+    'എയിറ്റ്': '8', 'ഏറ്റ്': '8', 'ate': '8', 'ഏട്ട്': '8',
+    'വാൺ': '1', 'wan': '1', 'ഒൺ': '1', 'oan': '1'
+});
+fillMap(V.piece, {
+    'night': 'n', 'nite': 'n', 'knights': 'n', 'ഹോഴ്സ്': 'n',
+    'rock': 'r', 'rok': 'r', 'brook': 'r', 'rooks': 'r', 'രഥം': 'r', 'തേരിനെ': 'r',
+    'pon': 'p', 'paun': 'p', 'pone': 'p', 'pawns': 'p', 'ഭടൻ': 'p', 'ഭടനെ': 'p',
+    'bishup': 'b', 'bishap': 'b', 'ഒട്ടകം': 'b',
+    'kwin': 'q', 'quin': 'q', 'ക്വീൻ': 'q',
+    'kin': 'k'
+});
+
+// (learned aliases are applied after dictionaries are built, see applyLearned)
+const SUFFIX_RE = /(ിലേക്ക|ലേക്ക|യില|ില|യെ|ിനെ|നെ|ത്തെ|ുടെ)$/;
+
+function vlookup(map, tok) {
+    const k = vkey(tok);
+    if (map.has(k)) return map.get(k);
+    const s = k.replace(SUFFIX_RE, '');
+    if (s && s !== k && map.has(s)) return map.get(s);
+    return undefined;
+}
+
+function lev(a, b) {
+    const m = a.length, n = b.length;
+    if (Math.abs(m - n) > 1) return 2;
+    const d = Array.from({ length: m + 1 }, (_, i) => [i]);
+    for (let j = 1; j <= n; j++) d[0][j] = j;
+    for (let i = 1; i <= m; i++)
+        for (let j = 1; j <= n; j++)
+            d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[m][n];
+}
+
+function pieceCands(tok) {
+    const exact = vlookup(V.piece, tok);
+    if (exact) return [{ v: exact, w: 1 }];
+    const k = vkey(tok);
+    if (k.length >= (HAS_ML.test(k) ? 4 : 4)) {
+        for (const [word, type] of V.piece) {
+            if (word.length >= 4 && lev(k, word) <= 1) return [{ v: type, w: 0.6 }];
+        }
+    }
+    return null;
+}
+
+// Sound-alike groups (weights are deliberately low: they only win when the
+// literal reading is not a legal move).
+const FILE_SIB = {
+    b: [['d', .45], ['c', .45], ['e', .45], ['g', .45]],
+    c: [['b', .45], ['d', .45], ['e', .45], ['g', .45]],
+    d: [['b', .45], ['c', .45], ['e', .45], ['g', .45]],
+    e: [['b', .45], ['c', .45], ['d', .45], ['g', .45]],
+    g: [['b', .45], ['c', .45], ['d', .45], ['e', .45]],
+    a: [['h', .4]], h: [['a', .4]]
+};
+const RANK_SIB = {};   // digits are recognised reliably; never guess a different rank
+
+function fileCands(tok) {
+    const f = /^[a-h]$/.test(tok) ? tok : vlookup(V.file, tok);
+    if (!f) return null;
+    return [{ v: f, w: 1 }].concat((FILE_SIB[f] || []).map(([v, w]) => ({ v, w })));
+}
+function rankCands(tok) {
+    const r = /^[1-8]$/.test(tok) ? tok : vlookup(V.rank, tok);
+    if (!r) return null;
+    return [{ v: r, w: 1 }].concat((RANK_SIB[r] || []).map(([v, w]) => ({ v, w })));
+}
+
+function isKnownWord(w) {
+    return /^[a-h][1-8]$/.test(w) || vlookup(V.file, w) !== undefined || vlookup(V.rank, w) !== undefined || vlookup(V.piece, w) !== undefined;
+}
+
+function splitCompound(w) {
+    for (let p = 1; p < w.length; p++) {
+        const l = w.slice(0, p), r = w.slice(p);
+        if (vlookup(V.file, l) !== undefined && vlookup(V.rank, r) !== undefined) return [l, r];
+    }
+    return null;
+}
+
+function tokenizeSpeech(text) {
+    let t = normText(text).replace(/[,.;:!?()\[\]"'“”‘’\-_/\\]+/g, ' ');
+    t = t.replace(/([^\d\s])(\d)/g, '$1 $2').replace(/(\d)([^\d\s])/g, '$1 $2');
+    const out = [];
+    for (const w of t.split(/\s+/).filter(Boolean)) {
+        if (isKnownWord(w)) { out.push(w); continue; }
+        const sp = splitCompound(w);
+        if (sp) out.push(...sp); else out.push(w);
+    }
+    return out;
+}
+
+function slotFrom(fc, rc) {
+    const out = [];
+    for (const f of fc) for (const r of rc) out.push({ sq: f.v + r.v, w: f.w * r.w });
+    return out;
+}
+
+function extractSlots(tokens) {
+    const slots = [];
+    for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (/^[a-h][1-8]$/.test(t)) { slots.push(slotFrom(fileCands(t[0]), rankCands(t[1]))); continue; }
+        const fc = fileCands(t);
+        if (fc && i + 1 < tokens.length) {
+            const rc = rankCands(tokens[i + 1]);
+            if (rc) { slots.push(slotFrom(fc, rc)); i++; }
+        }
+    }
+    return slots;
+}
+
+function parseMoveSpeech(text) {
+    const tokens = tokenizeSpeech(text);
+    let piece = null;
+    for (const t of tokens) {
+        const pc = pieceCands(t);
+        if (pc && (!piece || pc[0].w > piece[0].w)) piece = pc;
+        if (piece && piece[0].w === 1) break;
+    }
+    return {
+        tokens,
+        slots: extractSlots(tokens),
+        piece,
+        compact: String(text || '').toLowerCase().replace(/[^a-z0-9=\-+#]/g, '')
+    };
+}
+
+
+// ---------- 8.0 state "wash-out": nothing stale survives a bad input ----------
+const READY_TEXT = '⚔ Ready — Say your move! (e.g. "e2 e4" or "കുതിര f3")';
+const YES_WORDS = ['ശരി', 'ശെരി', 'അതെ', 'ഓകെ', 'ഓക്കെ', 'യെസ്', 'സമ്മതം', 'yes', 'ok', 'okay', 'correct', 'confirm', 'right', 'yeah'];
+
+function restoreBanner() {
+    const d = document.getElementById('command-display');
+    if (!d || !App.chess || App.isIntroPlaying || App.isBotThinking) return;
+    const st = App.stagedMove || {};
+    if (VOICE.confirm || VOICE.pendingChoice) return;
+    if (st.from) d.textContent = `📍 ${PIECE_NAMES_EN[(App.chess.get(st.from) || {}).type] || 'Piece'} (${st.from}) selected. Say target square.`;
+    else if (st.piece) d.textContent = `♟️ ${PIECE_NAMES_EN[st.piece]} selected. Say square.`;
+    else d.textContent = READY_TEXT;
+    d.style.opacity = '1';
+}
+
+function clearConfirm() {
+    VOICE.confirm = null;
+    clearHighlights();
+}
+
+function washStale() {
+    if (!App.chess) return;
+    const now = Date.now();
+    const st = App.stagedMove || {};
+    const sig = (st.piece || '') + (st.from || '') + (st.to || '');
+    if (sig !== VOICE.stagedSig) { VOICE.stagedSig = sig; VOICE.stagedAt = now; }
+    else if (sig && now - VOICE.stagedAt > 10000) {          // half-finished selection: forget it
+        resetStagedMove(); VOICE.stagedSig = ''; restoreBanner();
+    }
+    if (VOICE.pendingChoice && now > VOICE.pendingChoice.until) { VOICE.pendingChoice = null; clearHighlights(); restoreBanner(); }
+    if (VOICE.confirm && now > VOICE.confirm.until) { clearConfirm(); restoreBanner(); }
+    // "🎤 …" interim text that never turned into an action
+    const d = document.getElementById('command-display');
+    if (d && now - (VOICE.lastResultAt || 0) > 2500 && /^🎤/.test(d.textContent || '')) restoreBanner();
+}
+setInterval(washStale, 400);
+
+// ---------- 8.0b learning your pronunciation ----------
+// When you confirm a move that needed a sound-alike guess, remember which
+// spoken word meant which letter/number. Applied after 2 consistent
+// observations; stored only in this browser (localStorage).
+const LEARN_KEY = 'chess_voice_aliases_v1';
+let LEARNED = { file: {}, rank: {} };
+try { LEARNED = JSON.parse(localStorage.getItem(LEARN_KEY)) || LEARNED; } catch (e) { }
+function applyLearned() {
+    for (const kind of ['file', 'rank']) {
+        for (const k in (LEARNED[kind] || {})) {
+            const e = LEARNED[kind][k];
+            if (e && e.n >= 2) V[kind].set(k, e.v);
+        }
+    }
+}
+function learnFrom(heard, from, to, stagedFrom) {
+    try {
+        if (!heard) return;
+        const toks = tokenizeSpeech(heard), pairs = [];
+        for (let i = 0; i + 1 < toks.length; i++) {
+            if (/^[a-h][1-8]$/.test(toks[i])) { pairs.push([null, null, toks[i]]); continue; }
+            if (fileCands(toks[i]) && rankCands(toks[i + 1])) { pairs.push([toks[i], toks[i + 1], null]); i++; }
+        }
+        const targets = pairs.length >= 2 ? [from, to] : pairs.length === 1 ? [stagedFrom ? from : to] : [];
+        pairs.slice(0, targets.length).forEach((p, idx) => {
+            const sq = targets[idx];
+            const lit = [[p[0], 'file', sq[0]], [p[1], 'rank', sq[1]]];
+            for (const [tok, kind, want] of lit) {
+                if (!tok || tok.length < (kind === 'file' ? 2 : 1) || /^[a-z]$/i.test(tok) || /^\d$/.test(tok)) continue;
+                const key = vkey(tok);
+                if (vlookup(V[kind], tok) === want) continue;       // already understood correctly
+                const e = LEARNED[kind][key];
+                if (e && e.v === want) e.n++; else LEARNED[kind][key] = { v: want, n: 1 };
+            }
+        });
+        localStorage.setItem(LEARN_KEY, JSON.stringify(LEARNED));
+        applyLearned();
+    } catch (e) { }
+}
+function resetVoiceLearning() {
+    LEARNED = { file: {}, rank: {} };
+    try { localStorage.removeItem(LEARN_KEY); } catch (e) { }
+    showToast('Voice learning cleared', 'info');
+    setTimeout(() => location.reload(), 600);
+}
+
+// ---------- 8.2 matching speech against legal moves ----------
+function altWeight(a, idx) {
+    const c = a.conf > 0 ? 0.7 + 0.3 * a.conf : 0.9;
+    return Math.max(0.5, 1 - 0.08 * idx) * c;
+}
+
+function genCandidates(p, legal, staged) {
+    const moves = [], selects = [];
+    let pieceOnly = null;
+    const sl = p.slots;
+    const pieceMatchW = type => (!p.piece ? 1 : (p.piece.find(x => x.v === type) || { w: 0 }).w);
+    const turn = App.chess.turn();
+
+    if (sl.length >= 2) {
+        for (const a of sl[0]) for (const b of sl[1]) {
+            const m = legal.find(x => x.from === a.sq && x.to === b.sq);
+            if (!m) continue;
+            const pw = p.piece ? Math.max(0.55, pieceMatchW(m.piece)) : 1;
+            moves.push({ m, score: a.w * b.w * pw, fuzzy: a.w * b.w < 1 });
+        }
+    } else if (sl.length === 1) {
+        for (const a of sl[0]) {
+            const fz = a.w < 1;
+            if (staged.from) {
+                legal.filter(x => x.from === staged.from && x.to === a.sq)
+                    .forEach(m => moves.push({ m, score: a.w * 1.15, fuzzy: fz }));
+            }
+            const spokenPiece = !!p.piece;
+            const wantPiece = p.piece || (staged.piece ? [{ v: staged.piece, w: 1 }] : null);
+            const before = moves.length;
+            if (wantPiece) {
+                for (const pc of wantPiece) {
+                    legal.filter(x => x.piece === pc.v && x.to === a.sq)
+                        .forEach(m => moves.push({ m, score: a.w * pc.w, fuzzy: fz || pc.w < 1 }));
+                }
+            }
+            if (!wantPiece || (!spokenPiece && moves.length === before)) {
+                const pawn = legal.filter(x => x.piece === 'p' && x.to === a.sq);
+                if (pawn.length) pawn.forEach(m => moves.push({ m, score: a.w, fuzzy: fz }));
+                else legal.filter(x => x.to === a.sq).forEach(m => moves.push({ m, score: a.w * 0.85, fuzzy: true }));
+            }
+            // selecting one of our own pieces by its square
+            const pc = App.chess.get(a.sq);
+            if (pc && pc.color === turn && legal.some(x => x.from === a.sq)) {
+                const okPiece = !p.piece || p.piece.some(x => x.v === pc.type);
+                if (okPiece) selects.push({ sq: a.sq, piece: pc.type, score: a.w, fuzzy: fz });
+            }
+        }
+    } else if (p.piece) {
+        pieceOnly = p.piece[0];
+    }
+
+    // Direct SAN fallback: "nf3", "bc4", "o-o", "exd5"
+    if (!moves.length && !selects.length && p.compact.length >= 2 &&
+        /^([a-h]?[nbrqk]?x?[a-h][1-8](=[qrbn])?|o-o(-o)?)$/.test(p.compact)) {
+        const variants = [
+            p.compact.replace(/^([nbrqk])(?=[a-h]|x)/, m => m.toUpperCase()),
+            p.compact.replace(/^o-o(-o)?$/, s => s.toUpperCase()),
+            p.compact
+        ];
+        for (const v of variants) {
+            try {
+                const r = new Chess(App.chess.fen()).move(v, { sloppy: true });
+                const m = r && legal.find(x => x.from === r.from && x.to === r.to);
+                if (m) { moves.push({ m, score: 0.9, fuzzy: false }); break; }
+            } catch (e) { }
+        }
+    }
+    return { moves, selects, pieceOnly };
+}
+
+function detectCommand(text) {
+    const modalOpen = !!document.querySelector('.modal-overlay.active');
+    if (modalOpen && (matchCommand(text, ML_COMMANDS.close) || matchCommand(text, ML_COMMANDS.cancel))) return 'close';
+    if (App.pendingPromotion) return null;
+    const order = ['cancel', 'help', 'undo', 'resign', 'hint', 'settings', 'history', 'flip', 'castle',
+        'newGame', 'friendGame', 'easy', 'medium', 'hard', 'stopListening', 'startListening', 'soundToggle'];
+    for (const n of order) if (matchCommand(text, ML_COMMANDS[n])) return n;
+    if (modalOpen && matchCommand(text, ML_COMMANDS.startGame)) return 'startGame';
+    return null;
+}
+
+function matchCommand(text, commands) {
+    const t = ' ' + normText(text).replace(/[.,!?;:]/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+    const squeezed = t.replace(/ /g, '');
+    return commands.some(cmd => {
+        const c = normText(cmd).trim();
+        if (!c) return false;
+        if (/^[a-z0-9 ]+$/.test(c)) return t.includes(' ' + c + ' ');
+        return t.includes(c) || squeezed.includes(c.replace(/ /g, ''));
+    });
+}
+
+// Pure function: no side effects, safe to call on every interim result.
+function interpretUtterance(alts) {
+    if (!alts.length) return { kind: 'none' };
+
+    // Promotion prompt: only a piece name makes sense
+    if (App.pendingPromotion) {
+        for (const a of alts) {
+            for (const t of tokenizeSpeech(a.text)) {
+                const pc = pieceCands(t);
+                if (pc && 'qrbn'.includes(pc[0].v)) return { kind: 'promotion', piece: pc[0].v };
+            }
+        }
+        return { kind: 'promotion', piece: null };
+    }
+
+    // Confirmation pending ("e2 → e4 ?  say ശരി / വേണ്ട")
+    const cf = VOICE.confirm;
+    if (cf && Date.now() < cf.until) {
+        for (const a of alts) {
+            if (matchCommand(a.text, YES_WORDS)) return { kind: 'confirm-yes' };
+        }
+        for (const a of alts) {
+            if (matchCommand(a.text, ML_COMMANDS.cancel) || matchCommand(a.text, ['തെറ്റ്', 'തെറ്റാണ്', 'wrong'])) return { kind: 'confirm-no' };
+        }
+    }
+
+    // Choice pending ("1 or 2?")
+    const pc = VOICE.pendingChoice;
+    if (pc && Date.now() < pc.until) {
+        for (const a of alts) {
+            const toks = tokenizeSpeech(a.text);
+            const ranks = toks.map(t => rankCands(t)).filter(Boolean);
+            const hasOther = toks.some(t => fileCands(t) || pieceCands(t));
+            if (ranks.length && !hasOther) {
+                const idx = parseInt(ranks[0][0].v, 10) - 1;
+                if (pc.options[idx]) return { kind: 'move', ...pc.options[idx], certain: true, fromChoice: true, heard: pc.heard };
+            }
+        }
+    }
+
+    const staged = App.stagedMove || {};
+    const legal = App.chess.moves({ verbose: true });
+
+    const c0 = detectCommand(alts[0].text);
+    if (c0) return { kind: 'command', name: c0, text: alts[0].text };
+
+    const parses = alts.map((a, i) => ({ w: altWeight(a, i), p: parseMoveSpeech(a.text) }));
+    const agg = new Map(), sel = new Map();
+    let pieceOnly = null;
+
+    for (const { w, p } of parses) {
+        const g = genCandidates(p, legal, staged);
+        for (const c of g.moves) {
+            const key = c.m.from + c.m.to;
+            let s = c.score * w;
+            if (pc && Date.now() < pc.until && pc.options.some(o => o.from + o.to === key)) s *= 1.3;
+            const e = agg.get(key);
+            if (!e) agg.set(key, { from: c.m.from, to: c.m.to, piece: c.m.piece, score: s, support: 1, fuzzy: c.fuzzy });
+            else { e.score = Math.max(e.score, s); e.support++; e.fuzzy = e.fuzzy && c.fuzzy; }
+        }
+        for (const s of g.selects) {
+            const e = sel.get(s.sq);
+            const sc = s.score * w;
+            if (!e || sc > e.score) sel.set(s.sq, { sq: s.sq, piece: s.piece, score: sc });
+        }
+        if (g.pieceOnly && (!pieceOnly || g.pieceOnly.w > pieceOnly.w)) pieceOnly = g.pieceOnly;
+    }
+
+    const list = [...agg.values()]
+        .map(e => ({ ...e, score: e.score + 0.08 * (e.support - 1) }))
+        .sort((a, b) => b.score - a.score);
+    const bestSel = [...sel.values()].sort((a, b) => b.score - a.score)[0];
+
+    // A literal "select my piece on this square" beats a fuzzy guess
+    if (bestSel && bestSel.score >= 0.9 && (!list.length || list[0].score < 0.7)) {
+        return { kind: 'select', sq: bestSel.sq, piece: bestSel.piece };
+    }
+
+    if (list.length && list[0].score >= 0.22) {
+        const best = list[0], second = list[1];
+        // Two literal readings: trust the recogniser's own ranking/confidence.
+        // Anything involving a sound-alike guess needs a clearer lead.
+        const need = (best.fuzzy || (second && second.fuzzy)) ? 1.35 : 1.05;
+        if (!second || best.score >= second.score * need) {
+            return { kind: 'move', ...best, certain: !best.fuzzy && best.score >= 0.7, single: parses[0].p.slots.length === 1 };
+        }
+        return { kind: 'choose', options: list.filter(e => e.score >= best.score * 0.5).slice(0, 3) };
+    }
+    if (bestSel) return { kind: 'select', sq: bestSel.sq, piece: bestSel.piece };
+    if (pieceOnly) return { kind: 'piece', piece: pieceOnly.v };
+
+    // Commands heard only in lower-ranked alternatives
+    for (let i = 1; i < alts.length; i++) {
+        const c = detectCommand(alts[i].text);
+        if (c) return { kind: 'command', name: c, text: alts[i].text };
+    }
+
+    // Clear-but-illegal move (reported explicitly, not as "not understood")
+    const p0 = parses[0].p;
+    if (p0.slots.length >= 2) return { kind: 'illegal', from: p0.slots[0][0].sq, to: p0.slots[1][0].sq };
+    if (p0.slots.length === 1) return { kind: 'illegal', to: p0.slots[0][0].sq, piece: p0.piece ? p0.piece[0].v : null };
+    return { kind: 'none' };
+}
+
+// ---------- 8.3 acting on a decision ----------
+function playerCanMove() {
+    if (App.isBotThinking) { showToast('ദയവായി കാത്തിരിക്കുക — Please wait', 'info'); return false; }
+    if (App.gameMode === 'bot' && App.chess.turn() !== App.playerColor) { showToast('ബോട്ടിന്റെ ഊഴം — Bot\'s turn', 'info'); return false; }
+    return true;
+}
+
+function describeOption(o) {
+    return `${PIECE_NAMES_EN[o.piece] || ''} ${o.from}→${o.to}`.trim();
+}
+
+function showChoice(options, heard) {
+    VOICE.confirm = null;
+    VOICE.pendingChoice = { options, heard, until: Date.now() + 9000 };
+    clearHighlights();
+    options.forEach(o => {
+        const f = document.getElementById('sq-' + o.from), t = document.getElementById('sq-' + o.to);
+        if (f) f.classList.add('candidate-piece');
+        if (t) t.classList.add('legal-move');
+    });
+    const txt = options.map((o, i) => `${i + 1}) ${describeOption(o)}`).join('   ');
+    setCommandText(`🔀 ഏത്? Which one? ${txt} — "ഒന്ന് / രണ്ട്" (1 / 2)`);
+    playSelectionSound();
+}
+
+function applyOutcome(out, alts, isFinal) {
+    const heard = alts[0].text;
+
+    // While our own voice is talking, only accept things that clearly parse
+    if (TTS.speaking) {
+        if (out.kind === 'none' || out.kind === 'illegal') return;
+        window.speechSynthesis.cancel();
+        TTS.speaking = false;
+    }
+
+    switch (out.kind) {
+        case 'command':
+            VOICE.failStreak = 0;
+            markDone(heard);
+            dispatchCommand(out.name, out.text);
+            return;
+
+        case 'promotion': {
+            if (!out.piece) {
+                speakML('ഏത് കരുവാക്കണം? മന്ത്രി, തേര്, ആന, അല്ലെങ്കിൽ കുതിര?', 'Choose Queen, Rook, Bishop, or Knight');
+                setCommandText('♛ Promote to: Queen / Rook / Bishop / Knight — മന്ത്രി / തേര് / ആന / കുതിര');
+                return;
+            }
+            const pp = App.pendingPromotion;
+            closeModal('modal-promotion');
+            App.pendingPromotion = null;
+            VOICE.failStreak = 0;
+            tryMove(pp.from, pp.to, out.piece);
+            return;
+        }
+
+        case 'move':
+            if (!playerCanMove()) return;
+            VOICE.failStreak = 0;
+            // Not 100% sure what was said -> show the move and ask, instead of guessing
+            if (!out.certain) {
+                VOICE.pendingChoice = null;
+                VOICE.confirm = { from: out.from, to: out.to, piece: out.piece, heard, until: Date.now() + 7000 };
+                clearHighlights();
+                const f = document.getElementById('sq-' + out.from), t = document.getElementById('sq-' + out.to);
+                if (f) f.classList.add('staged-from');
+                if (t) t.classList.add('staged-to');
+                setCommandText(`🤔 ${describeOption(out)} ? — "ശരി" (yes) / "വേണ്ട" (no)`);
+                playSelectionSound();
+                return;
+            }
+            VOICE.pendingChoice = null;
+            VOICE.confirm = null;
+            markDone(heard);
+            if (out.fromChoice) learnFrom(out.heard, out.from, out.to, false);
+            tryMove(out.from, out.to);
+            return;
+
+        case 'confirm-yes': {
+            const c = VOICE.confirm;
+            VOICE.confirm = null;
+            if (!c) return;
+            VOICE.failStreak = 0;
+            markDone(heard);
+            learnFrom(c.heard, c.from, c.to, false);
+            tryMove(c.from, c.to);
+            return;
+        }
+
+        case 'confirm-no':
+            clearConfirm();
+            resetStagedMove();
+            setCommandText('❌ റദ്ദാക്കി — Cancelled. Say your move again.');
+            return;
+
+        case 'choose':
+            if (!playerCanMove()) return;
+            showChoice(out.options, heard);
+            speakML('ഏതാണ്? ഒന്നോ രണ്ടോ പറയൂ', 'Which one? Say one or two.');
+            return;
+
+        case 'select': {
+            if (!playerCanMove()) return;
+            VOICE.failStreak = 0;
+            highlightLegalMoves(out.sq);
+            App.stagedMove = { piece: out.piece, from: out.sq, to: null, awaitingConfirmation: false, moveObj: null };
+            setCommandText(`📍 ${PIECE_NAMES_EN[out.piece]} (${out.sq}) selected. Say target square.`);
+            playSelectionSound();
+            return;
+        }
+
+        case 'piece': {
+            if (!playerCanMove()) return;
+            VOICE.failStreak = 0;
+            const legal = App.chess.moves({ verbose: true }).filter(m => m.piece === out.piece);
+            const froms = [...new Set(legal.map(m => m.from))];
+            const nameEN = PIECE_NAMES_EN[out.piece];
+            if (!froms.length) {
+                setCommandText(`❌ No legal moves for ${nameEN}`);
+                return;
+            }
+            if (froms.length === 1) {
+                highlightLegalMoves(froms[0]);
+                App.stagedMove = { piece: out.piece, from: froms[0], to: null, awaitingConfirmation: false, moveObj: null };
+                setCommandText(`📍 ${nameEN} (${froms[0]}) selected. Say target square.`);
+            } else {
+                clearHighlights();
+                froms.forEach(sq => { const el = document.getElementById('sq-' + sq); if (el) el.classList.add('candidate-piece'); });
+                App.stagedMove = { piece: out.piece, from: null, to: null, awaitingConfirmation: false, moveObj: null };
+                setCommandText(`♟️ ${nameEN} selected. Say from-square (${froms.join(', ')}).`);
+            }
+            playSelectionSound();
+            return;
+        }
+
+        case 'illegal':
+            if (!isFinal || !playerCanMove()) return;
+            // Silent: no sound. Everything half-selected is cleared so the next
+            // command starts from a clean board.
+            resetStagedMove(); VOICE.confirm = null; VOICE.pendingChoice = null;
+            setCommandText(out.from
+                ? `❌ തെറ്റായ നീക്കം: ${out.from} → ${out.to} സാധ്യമല്ല (Illegal Move)`
+                : `❌ ${out.to} ലേക്ക് നീക്കം സാധ്യമല്ല (Illegal)`);
+            return;
+
+        default:
+            if (!isFinal) return;
+            noteMiss(heard);
+    }
+}
+
+function markDone(text) {
+    VOICE.lastKey = normText(text);
+    VOICE.lastAt = Date.now();
+}
+
+function noteMiss(heard) {
+    VOICE.failStreak++;
+    setCommandText(`❓ കേട്ടത്: “${heard}” — വീണ്ടും പറയൂ. Try: "e2 e4" / "കുതിര f3"`);
+}
+
+function switchRecognitionLang() {
+    // Auto mode listens in both languages; it no longer swaps one language for the other.
+    setRecognitionMode('auto');
+}
+
+function setRecognitionMode(lang) {
+    if (lang === 'auto') {
+        VOICE.auto = true;
+        VOICE.lang = 'ml-IN';
+    } else {
+        VOICE.auto = false;
+        VOICE.lang = lang;
+    }
+    App.voiceLang = lang;
+    VOICE.failStreak = 0;
+    stopRecognitionSessions();
+    if (App.isListening) startRecognitionSessions();
+}
+
+// ---------- 8.4 command dispatcher ----------
+function dispatchCommand(name, text) {
+    setCommandText('🎤 "' + text + '"');
+    switch (name) {
+        case 'close':
+            closeAllModals();
+            speakML('അടച്ചു. കളി തുടരാം.', 'Closed. Let us continue the game.');
+            setCommandText('⚔ Ready — Say your move! / നീക്കം പറയൂ!');
+            return;
+        case 'cancel':
+            resetStagedMove();
+            VOICE.pendingChoice = null;
+            setCommandText('❌ Selection cleared. Say piece or square.');
+            showToast('Cleared / റദ്ദാക്കി', 'info');
+            return;
+        case 'help': handleHelp(); return;
+        case 'undo': handleUndo(); return;
+        case 'resign': handleResign(); return;
+        case 'hint': showHintToUser(); return;
+        case 'settings':
+            closeAllModals(); openModal('modal-settings');
+            showToast('⚙ Settings opened / സെറ്റിംഗ്സ്', 'info'); return;
+        case 'history':
+            closeAllModals(); openModal('modal-history');
+            showToast('📜 Move history / നീക്കങ്ങൾ', 'info'); return;
+        case 'flip':
+            App.isBoardFlipped = !App.isBoardFlipped;
+            document.getElementById('chess-board').classList.toggle('flipped', App.isBoardFlipped);
+            showToast('🔄 Board flipped / ബോർഡ് തിരിച്ചു', 'info'); return;
+        case 'castle': handleCastle(text); return;
+        case 'newGame':
+            closeAllModals();
+            App.gameMode = 'bot'; App.playerColor = 'w';
+            document.getElementById('white-name').textContent = 'You / നിങ്ങൾ';
+            document.getElementById('white-subtitle').textContent = 'Player';
+            document.getElementById('black-name').textContent = 'Bot / ബോട്ട്';
+            document.getElementById('black-subtitle').textContent = getbotTitle();
+            initGame(); startTimer();
+            showToast('⚔ New game started!', 'success');
+            speakML('പുതിയ കളി ആരംഭിച്ചു. നിങ്ങളുടെ ഊഴം.', 'New game started. Your turn.');
+            return;
+        case 'friendGame':
+            App.gameMode = 'friend'; App.playerColor = 'w';
+            document.getElementById('white-name').textContent = 'Player 1';
+            document.getElementById('white-subtitle').textContent = 'White / വെള്ള';
+            document.getElementById('black-name').textContent = 'Player 2';
+            document.getElementById('black-subtitle').textContent = 'Black / കറുപ്പ്';
+            closeAllModals(); initGame(); startTimer();
+            showToast('👥 Friend game started!', 'success');
+            speakML('സുഹൃത്തിനോടൊപ്പമുള്ള കളി ആരംഭിച്ചു. വെള്ളയുടെ ഊഴം.', 'Friend game started. White turn.');
+            return;
+        case 'easy':
+            App.botDepth = 2;
+            showToast('🟢 Easy mode / എളുപ്പം', 'info');
+            speakML('എളുപ്പം മോഡ് സെറ്റ് ചെയ്തു', 'Easy mode set.');
+            document.getElementById('black-subtitle').textContent = 'Beginner / തുടക്കക്കാരൻ'; return;
+        case 'medium':
+            App.botDepth = 4;
+            showToast('🟡 Medium mode / ഇടത്തരം', 'info');
+            speakML('ഇടത്തരം മോഡ് സെറ്റ് ചെയ്തു', 'Medium mode set.');
+            document.getElementById('black-subtitle').textContent = 'Intermediate / ഇടത്തരം'; return;
+        case 'hard':
+            App.botDepth = 6;
+            showToast('🔴 Hard mode / കഠിനം', 'info');
+            speakML('കഠിനം മോഡ് സെറ്റ് ചെയ്തു', 'Hard mode set.');
+            document.getElementById('black-subtitle').textContent = 'Expert / വിദഗ്ധൻ'; return;
+        case 'stopListening':
+            speakML('മൈക്ക് ഓഫ് ചെയ്യുന്നു', 'Microphone stopping.');
+            setTimeout(() => stopListening(), 1500); return;
+        case 'startListening':
+            startListening();
+            speakML('കേൾക്കുന്നു', 'Listening started');
+            showToast('🎤 Microphone active / മൈക്ക് ഓൺ', 'info'); return;
+        case 'soundToggle': {
+            App.soundEnabled = !App.soundEnabled;
+            document.querySelectorAll('#sound-selector .diff-option').forEach(b => {
+                b.classList.toggle('selected', (b.dataset.sound === 'on') === App.soundEnabled);
+            });
+            showToast(App.soundEnabled ? '🔊 Sound enabled / ശബ്ദം ഓൺ' : '🔇 Sound muted / ശബ്ദം ഓഫ്', 'info');
+            if (App.soundEnabled) speakML('ശബ്ദം ഓൺ ചെയ്തു', 'Sound turned on');
+            return;
+        }
+        case 'startGame': {
+            const ng = document.getElementById('modal-new-game'), fg = document.getElementById('modal-friend-game');
+            if (ng && ng.classList.contains('active')) document.getElementById('start-bot-game').click();
+            else if (fg && fg.classList.contains('active')) document.getElementById('start-friend-game').click();
+            return;
+        }
+    }
+}
+
+function handleCastle(text) {
+    const wantQ = matchCommand(text, ML_COMMANDS.castleQueen);
+    const wantK = matchCommand(text, ML_COMMANDS.castleKing);
+    if (!playerCanMove()) return;
+    const legal = App.chess.moves({ verbose: true });
+    const k = legal.find(m => m.flags.includes('k'));
+    const q = legal.find(m => m.flags.includes('q'));
+    let pick = wantQ ? q : wantK ? k : null;
+    if (!pick && !wantQ && !wantK) {
+        if (k && q) { showChoice([k, q]); return; }
+        pick = k || q;
+    }
+    if (pick) { tryMove(pick.from, pick.to); return; }
+    showToast('കോട്ട കെട്ടാൻ സാധ്യമല്ല — Cannot castle', 'warning');
+    setCommandText('❌ കോട്ട കെട്ടാൻ സാധ്യമല്ല (Cannot castle)');
+}
+
+function closeAllModals() {
+    document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+}
+
+// ---------- 8.5 recogniser lifecycle ----------
+function collectAlts(res) {
+    const out = [];
+    for (let j = 0; j < res.length; j++) {
+        const t = (res[j].transcript || '').trim();
+        if (t && !out.some(o => o.text === t)) out.push({ text: t, conf: res[j].confidence || 0 });
+    }
+    return out;
+}
+
+
+// Android Chrome (continuous mode) re-sends everything said so far in every
+// result ("e2 e4 e7 e5 ..."). Remove the part we already handled.
+function stripAccumulated(alts, previousFinal = '') {
+    const prev = previousFinal;
+    if (!prev) return alts;
+    return alts.map(a => {
+        const low = a.text.toLowerCase();
+        if (low.length > prev.length && low.startsWith(prev)) return { text: a.text.slice(prev.length).trim() || a.text, conf: a.conf, raw: a.text };
+        return { text: a.text, conf: a.conf, raw: a.text };
+    });
+}
+
+function restartRecognition() {
+    if (!App.isListening || App.isIntroPlaying) return;
+    startRecognitionSessions();
+}
+
+function initVoice() {
+    applyLearned();
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
         showToast('Speech recognition not supported. Use Chrome.', 'error');
         document.getElementById('mic-status').textContent = 'Not supported';
         return;
     }
 
-    App.recognition = new SpeechRecognition();
-    App.recognition.lang = App.voiceLang;
-    App.recognition.continuous = true;
-    App.recognition.interimResults = true;
-    App.recognition.maxAlternatives = 3;
-
+    App.voiceLang = 'auto';
+    VOICE.auto = true;
+    VOICE.lang = 'ml-IN';
+    App.recognitions = {};
+    App.recognition = null;
     App.recognitionRunning = false;
 
-    App.recognition.onstart = () => {
-        App.isListening = true;
-        App.recognitionRunning = true;
-        updateMicUI(true);
-    };
-
-    App.recognition.onend = () => {
-        App.recognitionRunning = false;
-        if (App.isListening) {
-            setTimeout(() => {
-                if (App.isListening && !App.recognitionRunning) {
-                    try {
-                        App.recognition.start();
-                    } catch (e) {}
-                }
-            }, 60);
-        } else {
-            updateMicUI(false);
-        }
-    };
-
-    App.recognition.onerror = (event) => {
-        console.warn('Speech error:', event.error);
-        if (event.error === 'no-speech') {
-            return;
-        }
-        if (event.error === 'not-allowed') {
-            showToast('Microphone access denied. Please allow microphone.', 'error');
-            App.isListening = false;
-            App.recognitionRunning = false;
-            updateMicUI(false);
-        }
-    };
-
-    // Continuous Watchdog: starts recognition safely if dropped
-    setInterval(() => {
-        if (App.isListening && !App.isIntroPlaying && !App.recognitionRunning && App.recognition) {
-            try {
-                App.recognition.start();
-            } catch (e) {}
-        }
-    }, 1500);
-
-    App.recognition.onresult = (event) => {
-        if (App.isIntroPlaying) {
-            return;
-        }
-
-        // Cancel any pending speech synthesis so player voice always takes 100% priority
-        if (TTS.speaking) {
-            window.speechSynthesis.cancel();
-            TTS.speaking = false;
-        }
-
-        const alternativeTexts = [];
-        let isFinalBatch = false;
-        let bestInterim = '';
+    const handleResult = (language, event) => {
+        if (App.isIntroPlaying) return;
+        VOICE.restartDelay = 60;
+        VOICE.lastResultAt = Date.now();
+        const session = App.recognitions[language];
+        if (!session) return;
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
+            if (session.handled.has(i)) continue;
             const res = event.results[i];
-            if (res.isFinal) isFinalBatch = true;
-            for (let j = 0; j < res.length; j++) {
-                const t = res[j].transcript.trim();
-                if (t && !alternativeTexts.includes(t)) {
-                    alternativeTexts.push(t);
-                }
-            }
-            if (!res.isFinal && res[0]) {
-                bestInterim = res[0].transcript.trim();
-            }
-        }
+            const alts = stripAccumulated(collectAlts(res), session.prevFinal);
+            if (!alts.length) continue;
+            DIAG.counts.result++;
 
-        if (alternativeTexts.length === 0) return;
-
-        // Show live speech feedback
-        setCommandText('🎤 ' + (bestInterim || alternativeTexts[0]), true);
-
-        // 1. FAST-PATH: If ANY alternative contains a complete legal move, execute immediately!
-        for (const candidate of alternativeTexts) {
-            if (isQuickExecutableCommand(candidate)) {
-                clearTimeout(App.speechDebounceTimer);
-                processVoiceCommand(candidate);
-                return;
+            if (res.isFinal) {
+                clearTimeout(VOICE.stableTimer);
+                VOICE.stableText = '';
+                session.handled.add(i);
+                session.prevFinal = (alts[0].raw || alts[0].text).toLowerCase();
+                // Same words just executed (Android re-emits results)? ignore.
+                const finalKey = normText(alts[0].text);
+                if (finalKey === VOICE.lastKey && Date.now() - VOICE.lastAt < 1200) { restoreBanner(); continue; }
+                if (session.lastFinalKey === finalKey && Date.now() - session.lastFinalAt < 1200) continue;
+                session.lastFinalKey = finalKey;
+                session.lastFinalAt = Date.now();
+                setCommandText('🎤 "' + alts[0].text + '"');
+                const out = interpretUtterance(alts);
+                console.debug('[voice:' + language + '] final', alts, out);
+                diagLog(alts, out, true, language);
+                applyOutcome(out, alts, true);
+            } else {
+                setCommandText('🎤 ' + alts[0].text, true);
+                scheduleInterim(language + ':' + i, alts);
             }
-        }
-
-        if (isFinalBatch) {
-            clearTimeout(App.speechDebounceTimer);
-            let handled = false;
-            for (const candidate of alternativeTexts) {
-                const tokens = tokenize(candidate);
-                const squares = extractSquares(tokens);
-                const piece = extractPiece(tokens);
-                if (squares.length > 0 || piece || matchCommand(candidate.toLowerCase(), ML_COMMANDS.help) || matchCommand(candidate.toLowerCase(), ML_COMMANDS.cancel)) {
-                    processVoiceCommand(candidate);
-                    handled = true;
-                    break;
-                }
-            }
-            if (!handled) {
-                processVoiceCommand(alternativeTexts[0]);
-            }
-        } else {
-            // Adaptive 350ms debounce for interim speech so syllables are not cut off prematurely
-            clearTimeout(App.speechDebounceTimer);
-            App.speechDebounceTimer = setTimeout(() => {
-                if (!App.isIntroPlaying) {
-                    for (const candidate of alternativeTexts) {
-                        const tokens = tokenize(candidate);
-                        const squares = extractSquares(tokens);
-                        const piece = extractPiece(tokens);
-                        if (squares.length > 0 || piece) {
-                            processVoiceCommand(candidate);
-                            return;
-                        }
-                    }
-                    if (bestInterim) {
-                        processVoiceCommand(bestInterim);
-                    }
-                }
-            }, 350);
         }
     };
 
-    // Mic button handler
+    const createRecognition = language => {
+        const recognition = new SpeechRecognition();
+        const session = { recognition, language, handled: new Set(), prevFinal: '', running: false, failed: false, lastFinalKey: '', lastFinalAt: 0 };
+        recognition.lang = language;
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 5;
+        recognition.onaudiostart = () => { DIAG.counts.audio++; };
+        recognition.onsoundstart = () => { DIAG.counts.sound++; };
+        recognition.onspeechstart = () => { DIAG.counts.speech++; };
+        recognition.onnomatch = () => { DIAG.counts.nomatch++; };
+        recognition.onstart = () => {
+            DIAG.counts.start++;
+            session.prevFinal = '';
+            session.handled.clear();
+            session.running = true;
+            session.failed = false;
+            App.recognitionRunning = Object.values(App.recognitions).some(s => s.running);
+            updateMicUI(true);
+        };
+        recognition.onend = () => {
+            DIAG.counts.end++;
+            session.running = false;
+            App.recognitionRunning = Object.values(App.recognitions).some(s => s.running);
+            clearTimeout(VOICE.stableTimer);
+            if (!App.isListening) { updateMicUI(false); return; }
+            recoverRecognitionIfNeeded();
+            clearTimeout(session.restartTimer);
+            session.restartTimer = setTimeout(restartRecognition, VOICE.restartDelay);
+        };
+        recognition.onerror = event => {
+            console.warn('Speech error (' + language + '):', event.error);
+            if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                DIAG.err = language + ': ' + event.error + ' @ ' + new Date().toLocaleTimeString();
+                if (event.error !== 'language-not-supported') showToast('🎙 Speech error: ' + event.error, 'warning');
+            }
+            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                session.failed = true;
+                session.running = false;
+                App.recognitionRunning = Object.values(App.recognitions).some(s => s.running);
+                if (!App.recognitionRunning) {
+                    showToast('Microphone access denied. Please allow microphone.', 'error');
+                    App.isListening = false;
+                    updateMicUI(false);
+                }
+            } else if (event.error === 'network' || event.error === 'audio-capture') {
+                session.failed = true;
+                VOICE.restartDelay = 1500;
+                if (Date.now() - VOICE.lastNetToast > 10000) {
+                    VOICE.lastNetToast = Date.now();
+                    showToast(event.error === 'network' ? 'Speech service needs internet — reconnecting…' : 'Microphone not available — reconnecting…', 'warning');
+                }
+            }
+        };
+        recognition.onresult = event => handleResult(language, event);
+        App.recognitions[language] = session;
+        return session;
+    };
+
+    createRecognition('ml-IN');
+    createRecognition('en-IN');
+    App.recognition = App.recognitions['ml-IN'].recognition;
     document.getElementById('mic-button').addEventListener('click', toggleListening);
+    startListening();
+}
+
+function startRecognitionSessions() {
+    const languages = [VOICE.auto ? 'ml-IN' : VOICE.lang];
+    for (const language of languages) {
+        const session = App.recognitions && App.recognitions[language];
+        if (!session || session.running) continue;
+        try { session.recognition.start(); } catch (e) { /* already starting */ }
+    }
+    App.recognitionRunning = languages.some(language => App.recognitions[language] && App.recognitions[language].running);
+}
+
+function recoverRecognitionIfNeeded() {
+    const sessions = Object.values(App.recognitions || {});
+    if (!App.isListening || !VOICE.auto || !sessions.length || sessions.some(session => session.running) || !sessions.every(session => session.failed)) return;
+    const fallback = App.recognitions['ml-IN'] || sessions[0];
+    fallback.failed = false;
+    VOICE.auto = false;
+    VOICE.lang = fallback.language;
+    App.voiceLang = fallback.language;
+    showToast('Parallel voice mode unavailable; using ' + fallback.language, 'warning');
+    startRecognitionSessions();
+}
+
+function stopRecognitionSessions() {
+    clearTimeout(VOICE.restartTimer);
+    for (const session of Object.values(App.recognitions || {})) {
+        clearTimeout(session.restartTimer);
+        session.running = false;
+        try { session.recognition.stop(); } catch (e) { }
+    }
+    App.recognitionRunning = false;
+}
+
+// Interim results: act only on a COMPLETE, literal, legal move that has
+// stayed unchanged for a moment (so half-spoken words are never executed).
+function scheduleInterim(i, alts) {
+    const out = interpretUtterance(alts);
+    const quick = (out.kind === 'move' && out.certain) || out.kind === 'confirm-yes' || out.kind === 'confirm-no' ||
+        (out.kind === 'command' && ['undo', 'hint', 'help', 'cancel', 'close', 'resign', 'newGame'].includes(out.name));
+    if (!quick) {
+        clearTimeout(VOICE.stableTimer);
+        VOICE.stableText = '';
+        return;
+    }
+    const key = alts[0].text;
+    if (VOICE.stableText === key) return;           // already waiting on this exact text
+    clearTimeout(VOICE.stableTimer);
+    VOICE.stableText = key;
+    VOICE.stableTimer = setTimeout(() => {
+        if (VOICE.handled.has(i)) return;
+        VOICE.handled.add(i);
+        VOICE.stableText = '';
+        const fresh = interpretUtterance(alts);     // state may have changed
+        console.debug('[voice] interim', alts, fresh);
+        diagLog(alts, fresh, false);
+        applyOutcome(fresh, alts, false);
+    }, out.kind === 'move' && out.single ? 450 : 260);
+}
+
+
+// ---------- 8.6 live diagnostics (tap the 🐞 button, bottom-left) ----------
+const DIAG = { rows: [], err: '-', counts: { audio: 0, sound: 0, speech: 0, result: 0, nomatch: 0, start: 0, end: 0 }, panel: null, box: null };
+
+function diagLog(alts, out, isFinal, language = VOICE.lang) {
+    const d = out ? (out.kind === 'move' ? `MOVE ${out.from}${out.to}` : out.kind === 'command' ? `CMD ${out.name}` :
+        out.kind === 'select' ? `SELECT ${out.sq}` : out.kind === 'piece' ? `PIECE ${out.piece}` :
+        out.kind === 'choose' ? 'ASK ' + out.options.map(o => o.from + o.to).join('/') : out.kind.toUpperCase()) : '-';
+    DIAG.rows.unshift(`${isFinal ? 'FINAL' : 'interim'} [${language}] → ${d}\n   ` +
+        alts.map(a => `"${a.text}" (${a.conf.toFixed(2)})`).join(' | '));
+    DIAG.rows.length = Math.min(DIAG.rows.length, 25);
+    diagRender();
+}
+
+function diagRender() {
+    if (!DIAG.box) return;
+    const c = DIAG.counts;
+    DIAG.box.textContent =
+        `page: ${location.protocol}//${location.host || '(file)'}\n` +
+        `lang: ${VOICE.auto ? 'ml-IN (stable)' : VOICE.lang}  listening: ${App.isListening}  running: ${App.recognitionRunning}\n` +
+        `mic events → start:${c.start} audio:${c.audio} sound:${c.sound} speech:${c.speech} result:${c.result} nomatch:${c.nomatch} end:${c.end}\n` +
+        `last error: ${DIAG.err}\n` +
+        `------------------------------\n` + (DIAG.rows.join('\n') || 'Speak a move… nothing heard yet');
+}
+
+function initDiagnostics() {
+    const btn = document.createElement('button');
+    btn.textContent = '🐞';
+    btn.title = 'Voice diagnostics';
+    btn.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99999;width:38px;height:38px;border-radius:50%;border:1px solid #d4af37;background:#1a1208;color:#fff;font-size:18px;cursor:pointer;opacity:.85';
+    const panel = document.createElement('div');
+    panel.style.cssText = 'position:fixed;left:8px;bottom:54px;z-index:99999;width:min(440px,94vw);max-height:55vh;overflow:auto;display:none;background:#0d0a06ee;color:#fff5be;border:1px solid #d4af37;border-radius:8px;padding:8px;font:12px/1.35 monospace;white-space:pre-wrap';
+    const box = document.createElement('div');
+    const copy = document.createElement('button');
+    copy.textContent = 'Copy log';
+    copy.style.cssText = 'margin-bottom:6px;padding:3px 10px;cursor:pointer';
+    copy.onclick = () => { try { navigator.clipboard.writeText(box.textContent); copy.textContent = 'Copied ✔'; } catch (e) { } };
+    const rl = document.createElement('button');
+    rl.textContent = 'Reset learning';
+    rl.style.cssText = 'margin:0 0 6px 6px;padding:3px 10px;cursor:pointer';
+    rl.onclick = () => { if (confirm('Forget learned pronunciations?')) resetVoiceLearning(); };
+    panel.appendChild(copy); panel.appendChild(rl); panel.appendChild(box);
+    document.body.appendChild(btn); document.body.appendChild(panel);
+    DIAG.panel = panel; DIAG.box = box;
+    btn.onclick = () => { panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; diagRender(); };
+    setInterval(() => { if (panel.style.display !== 'none') diagRender(); }, 1000);
+
+    if (location.protocol === 'file:') {
+        showToast('⚠ Page opened as a file. Run "python -m http.server 8000" and open http://localhost:8000 — voice is unreliable from file://', 'error');
+        DIAG.err = 'file:// page – Chrome re-asks / blocks the microphone. Use http://localhost';
+    }
 }
 
 function toggleListening() {
-    if (App.isListening) {
-        stopListening();
-    } else {
-        startListening();
-    }
+    if (App.isListening) stopListening(); else startListening();
 }
 
 function startListening() {
-    if (!App.recognition) {
+    if (!App.recognitions || !Object.keys(App.recognitions).length) {
         showToast('Speech recognition not available', 'error');
         return;
     }
-
-    App.recognition.lang = App.voiceLang;
     App.isListening = true;
-
-    try {
-        App.recognition.start();
-    } catch (e) {
-        // Already running
-    }
+    const languages = VOICE.auto ? ['ml-IN', 'en-IN'] : [VOICE.lang];
+    languages.forEach(language => {
+        if (App.recognitions[language]) App.recognitions[language].failed = false;
+    });
+    startRecognitionSessions();
     updateMicUI(true);
 }
 
 function stopListening() {
     App.isListening = false;
-    if (App.recognition) {
-        try {
-            App.recognition.stop();
-        } catch (e) { }
-    }
+    stopRecognitionSessions();
     updateMicUI(false);
 }
 
@@ -1040,576 +1927,6 @@ function updateMicUI(listening) {
         micStatus.classList.remove('active');
         waveform.classList.remove('active');
     }
-}
-
-
-// ============================================================
-// 9. MALAYALAM COMMAND PARSER
-// ============================================================
-
-// ============================================================
-// 9. ROBUST VOICE COMMAND & MOVE PROCESSOR
-// ============================================================
-
-function processVoiceCommand(text) {
-    console.log('Voice input received:', text);
-    const lower = text.toLowerCase().trim();
-
-    // Show what was heard
-    setCommandText('🎤 "' + text + '"');
-
-    // *** 1. VOICE CONTROL: Close any open modal ***
-    const activeModal = document.querySelector('.modal-overlay.active');
-    if (activeModal) {
-        if (matchCommand(lower, ML_COMMANDS.close) || matchCommand(lower, ML_COMMANDS.cancel)) {
-            closeAllModals();
-            speakML('അടച്ചു. കളി തുടരാം.', 'Closed. Let us continue the game.');
-            setCommandText('⚔ Ready — Say your move! / നീക്കം പറയൂ!');
-            return;
-        }
-    }
-
-    // *** 2. VOICE PROMOTION ***
-    if (App.pendingPromotion) {
-        if (matchCommand(lower, ML_COMMANDS.promoteQueen)) {
-            closeModal('modal-promotion');
-            tryMove(App.pendingPromotion.from, App.pendingPromotion.to, 'q');
-            App.pendingPromotion = null;
-            return;
-        }
-        if (matchCommand(lower, ML_COMMANDS.promoteRook)) {
-            closeModal('modal-promotion');
-            tryMove(App.pendingPromotion.from, App.pendingPromotion.to, 'r');
-            App.pendingPromotion = null;
-            return;
-        }
-        if (matchCommand(lower, ML_COMMANDS.promoteBishop)) {
-            closeModal('modal-promotion');
-            tryMove(App.pendingPromotion.from, App.pendingPromotion.to, 'b');
-            App.pendingPromotion = null;
-            return;
-        }
-        if (matchCommand(lower, ML_COMMANDS.promoteKnight)) {
-            closeModal('modal-promotion');
-            tryMove(App.pendingPromotion.from, App.pendingPromotion.to, 'n');
-            App.pendingPromotion = null;
-            return;
-        }
-        speakML('ഏത് കരുവാക്കണം? മന്ത്രി, തേര്, ആന, അല്ലെങ്കിൽ കുതിര?', 'Choose Queen, Rook, Bishop, or Knight');
-        return;
-    }
-
-    // *** 3. CANCEL / CLEAR CURRENT SELECTION ***
-    if (matchCommand(lower, ML_COMMANDS.cancel)) {
-        resetStagedMove();
-        setCommandText('❌ Selection cleared. Say piece or square.');
-        showToast('Cleared / റദ്ദാക്കി', 'info');
-        return;
-    }
-
-    // *** 4. GENERAL GAME COMMANDS ***
-    if (matchCommand(lower, ML_COMMANDS.help)) {
-        handleHelp();
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.undo)) {
-        handleUndo();
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.resign)) {
-        handleResign();
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.hint)) {
-        showHintToUser();
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.settings)) {
-        closeAllModals();
-        openModal('modal-settings');
-        showToast('⚙ Settings opened / സെറ്റിംഗ്സ്', 'info');
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.history)) {
-        closeAllModals();
-        openModal('modal-history');
-        showToast('📜 Move history / നീക്കങ്ങൾ', 'info');
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.flip)) {
-        App.isBoardFlipped = !App.isBoardFlipped;
-        document.getElementById('chess-board').classList.toggle('flipped', App.isBoardFlipped);
-        showToast('🔄 Board flipped / ബോർഡ് തിരിച്ചു', 'info');
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.castle)) {
-        handleCastle(lower);
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.newGame)) {
-        closeAllModals();
-        App.gameMode = 'bot';
-        App.playerColor = 'w';
-        document.getElementById('white-name').textContent = 'You / നിങ്ങൾ';
-        document.getElementById('white-subtitle').textContent = 'Player';
-        document.getElementById('black-name').textContent = 'Bot / ബോട്ട്';
-        document.getElementById('black-subtitle').textContent = getbotTitle();
-        initGame();
-        startTimer();
-        showToast('⚔ New game started!', 'success');
-        speakML('പുതിയ കളി ആരംഭിച്ചു. നിങ്ങളുടെ ഊഴം.', 'New game started. Your turn.');
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.friendGame)) {
-        App.gameMode = 'friend';
-        App.playerColor = 'w';
-        document.getElementById('white-name').textContent = 'Player 1';
-        document.getElementById('white-subtitle').textContent = 'White / വെള്ള';
-        document.getElementById('black-name').textContent = 'Player 2';
-        document.getElementById('black-subtitle').textContent = 'Black / കറുപ്പ്';
-        closeAllModals();
-        initGame();
-        startTimer();
-        showToast('👥 Friend game started!', 'success');
-        speakML('സുഹൃത്തിനോടൊപ്പമുള്ള കളി ആരംഭിച്ചു. വെള്ളയുടെ ഊഴം.', 'Friend game started. White turn.');
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.easy)) {
-        App.botDepth = 2;
-        showToast('🟢 Easy mode / എളുപ്പം', 'info');
-        speakML('എളുപ്പം മോഡ് സെറ്റ് ചെയ്തു', 'Easy mode set.');
-        document.getElementById('black-subtitle').textContent = 'Beginner / തുടക്കക്കാരൻ';
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.medium)) {
-        App.botDepth = 4;
-        showToast('🟡 Medium mode / ഇടത്തരം', 'info');
-        speakML('ഇടത്തരം മോഡ് സെറ്റ് ചെയ്തു', 'Medium mode set.');
-        document.getElementById('black-subtitle').textContent = 'Intermediate / ഇടത്തരം';
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.hard)) {
-        App.botDepth = 6;
-        showToast('🔴 Hard mode / കഠിനം', 'info');
-        speakML('കഠിനം മോഡ് സെറ്റ് ചെയ്തു', 'Hard mode set.');
-        document.getElementById('black-subtitle').textContent = 'Expert / വിദഗ്ധൻ';
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.stopListening)) {
-        speakML('മൈക്ക് ഓഫ് ചെയ്യുന്നു', 'Microphone stopping.');
-        setTimeout(() => stopListening(), 1500);
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.startListening)) {
-        startListening();
-        speakML('കേൾക്കുന്നു', 'Listening started');
-        showToast('🎤 Microphone active / മൈക്ക് ഓൺ', 'info');
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.soundToggle)) {
-        App.soundEnabled = !App.soundEnabled;
-        const soundBtns = document.querySelectorAll('#sound-selector .diff-option');
-        soundBtns.forEach(b => {
-            b.classList.toggle('selected', (b.dataset.sound === 'on') === App.soundEnabled);
-        });
-        const msg = App.soundEnabled ? '🔊 Sound enabled / ശബ്ദം ഓൺ' : '🔇 Sound muted / ശബ്ദം ഓഫ്';
-        showToast(msg, 'info');
-        if (App.soundEnabled) speakML('ശബ്ദം ഓൺ ചെയ്തു', 'Sound turned on');
-        return;
-    }
-    if (matchCommand(lower, ML_COMMANDS.startGame)) {
-        const newGameModal = document.getElementById('modal-new-game');
-        const friendModal = document.getElementById('modal-friend-game');
-        if (newGameModal && newGameModal.classList.contains('active')) {
-            document.getElementById('start-bot-game').click();
-            return;
-        }
-        if (friendModal && friendModal.classList.contains('active')) {
-            document.getElementById('start-friend-game').click();
-            return;
-        }
-    }
-
-    // If bot is currently thinking, tell user to wait
-    if (App.isBotThinking) {
-        showToast('ദയവായി കാത്തിരിക്കുക — Please wait', 'info');
-        return;
-    }
-    if (App.gameMode === 'bot' && App.chess.turn() !== App.playerColor) {
-        showToast('ബോട്ടിന്റെ ഊഴം — Bot\'s turn', 'info');
-        return;
-    }
-
-    // *** 5. PARSE MOVE (INSTANT EXECUTION) ***
-    handleInteractiveMoveInput(text);
-}
-
-function isQuickExecutableCommand(text) {
-    const lower = text.toLowerCase().trim();
-    if (matchCommand(lower, ML_COMMANDS.close) ||
-        matchCommand(lower, ML_COMMANDS.cancel) ||
-        matchCommand(lower, ML_COMMANDS.help) ||
-        matchCommand(lower, ML_COMMANDS.undo) ||
-        matchCommand(lower, ML_COMMANDS.resign) ||
-        matchCommand(lower, ML_COMMANDS.hint) ||
-        matchCommand(lower, ML_COMMANDS.castle) ||
-        matchCommand(lower, ML_COMMANDS.newGame)) {
-        return true;
-    }
-    const tokens = tokenize(text);
-    const squares = extractSquares(tokens);
-    if (squares.length >= 2) return true;
-    const pieceType = extractPiece(tokens);
-    if (pieceType && squares.length === 1) {
-        const matching = App.chess.moves({ verbose: true }).filter(m => m.piece === pieceType && m.to === squares[0]);
-        if (matching.length === 1) return true;
-    }
-    return false;
-}
-
-function executeFastMove(from, to, pieceType, promotionPiece) {
-    let success = tryMove(from, to, promotionPiece || 'q');
-
-    // Smart B <-> D disambiguation: if move fails due to acoustic confusion, try phonetic sibling
-    if (!success && (from || to)) {
-        const swapBD = (sq) => {
-            if (!sq) return sq;
-            if (sq.startsWith('b')) return 'd' + sq.slice(1);
-            if (sq.startsWith('d')) return 'b' + sq.slice(1);
-            return sq;
-        };
-
-        const altTo = swapBD(to);
-        const altFrom = swapBD(from);
-
-        if (altTo !== to && tryMove(from, altTo, promotionPiece || 'q')) {
-            success = true;
-        } else if (altFrom !== from && tryMove(altFrom, to, promotionPiece || 'q')) {
-            success = true;
-        } else if ((altFrom !== from || altTo !== to) && tryMove(altFrom, altTo, promotionPiece || 'q')) {
-            success = true;
-        }
-    }
-
-    if (!success) {
-        playErrorSound();
-        setCommandText(`❌ തെറ്റായ നീക്കം: ${from} → ${to} സാധ്യമല്ല (Illegal Move)`);
-        showToast(`❌ ${from} → ${to} സാധ്യമല്ല — Invalid move`, 'warning');
-        resetStagedMove();
-        return false;
-    }
-    return true;
-}
-
-function normalizeVoiceText(text) {
-    let t = text.toLowerCase();
-    
-    // 1. Remove Malayalam post-positions / suffixes
-    t = t.replace(/(ിലേക്ക്|ലേക്ക്|ഇലേക്ക്|യിലേക്ക്|യിൽനിന്ന്|ൽനിന്ന്|ൽ നിന്ന്|ിൽ നിന്ന്)/g, ' ');
-    t = t.replace(/(ഫോറി|നാലി|മൂന്നി|രണ്ടി|ഒന്നി|അഞ്ചി|ആറി|ഏഴി|എട്ടി|വണ്ണി|ടുവി|ത്രീയി)(ൽ|ിൽ)/g, '$1');
-
-    // 2. Separate letter-number combinations: e.g. 'g1' -> 'g 1', 'ജി1' -> 'ജി 1', 'd1' -> 'd 1', 'b1' -> 'b 1'
-    t = t.replace(/(എഫ്|എഫ|എച്ച്|എച്ച|എയ്ച്ച്|എയിച്ച്|ഏച്ച്|ഏച്ച|ഹെച്ച്|ഹെച്ച|എ|ഏ|ആ|ബി|ബീ|ബ|സി|സീ|ഡി|ഡീ|ദി|ദീ|ഡ|ഇ|ഈ|യി|യീ|ജി|ജീ|ഹാ|ഹ|[a-h])([1-8])/gi, ' $1 $2 ');
-
-    // 3. Separate letter-number words: e.g. 'ജിഒന്ന്' -> 'ജി ഒന്ന്', 'ഡിവൺ' -> 'ഡി വൺ'
-    t = t.replace(/(എഫ്|എഫ|എച്ച്|എച്ച|എയ്ച്ച്|എയിച്ച്|ഏച്ച്|ഏച്ച|ഹെച്ച്|ഹെച്ച|എ|ഏ|ആ|ബി|ബീ|ബ|സി|സീ|ഡി|ഡീ|ദി|ദീ|ഡ|ഇ|ഈ|യി|യീ|ജി|ജീ|ഹാ|ഹ|[a-h])(ഒന്ന്|ഒന്നു|ഒന്ന|ഒൻ|ഒന്|വൺ|വണ്|വന്|വാൻ|രണ്ട്|മൂന്ന്|നാല്|അഞ്ച്|ആറ്|ഏഴ്|എട്ട്|one|on|two|three|four|five|six|seven|eight|first|second|third|fourth|fifth|sixth|seventh|eighth)/gi, ' $1 $2 ');
-
-    return t;
-}
-
-function tokenize(text) {
-    const norm = normalizeVoiceText(text);
-    return norm.replace(/[,\.;:!?()]/g, ' ')
-        .split(/\s+/).filter(w => w.length > 0);
-}
-
-function extractSquares(tokens) {
-    const squares = [];
-    for (let i = 0; i < tokens.length; i++) {
-        const w = tokens[i];
-
-        // Direct english square (e.g. 'e4')
-        if (w.length === 2 && /^[a-h][1-8]$/.test(w)) {
-            squares.push(w);
-            continue;
-        }
-
-        const file = ML_FILE_MAP[w];
-        if (file) {
-            if (i + 1 < tokens.length) {
-                const nextW = tokens[i + 1];
-                let rank = ML_RANK_MAP[nextW];
-                if (!rank) {
-                    const stripped = nextW.replace(/[ാിീുൂൃെേൈൊോൌ]/g, '');
-                    rank = ML_RANK_MAP[stripped] || ML_RANK_MAP[nextW.replace(/റ$/, 'ർ')];
-                }
-                if (rank) {
-                    squares.push(file + rank);
-                    i++;
-                    continue;
-                }
-            }
-        }
-    }
-    return squares;
-}
-
-function extractPiece(tokens) {
-    for (const w of tokens) {
-        if (ML_PIECE_MAP[w]) return ML_PIECE_MAP[w];
-        const base = w.replace(/(യെ|നെ|െ|ിനെ)$/, '');
-        if (ML_PIECE_MAP[base]) return ML_PIECE_MAP[base];
-    }
-    return null;
-}
-
-function handleInteractiveMoveInput(text) {
-    const tokens = tokenize(text);
-    console.log('Processed Tokens:', tokens);
-
-    const squares = extractSquares(tokens);
-    const pieceType = extractPiece(tokens);
-    const legalMoves = App.chess.moves({ verbose: true });
-
-    // CASE 1: Both From and To squares provided (e.g. "e2 e4" or "കാലാൾ ഇ രണ്ട് ഇ നാല്")
-    if (squares.length >= 2) {
-        const from = squares[0];
-        const to = squares[1];
-        executeFastMove(from, to, pieceType);
-        return;
-    }
-
-    // CASE 2: Piece + Target Square provided (e.g. "കുതിര എഫ് മൂന്ന്" / "Knight f3")
-    if (pieceType && squares.length === 1) {
-        const targetSq = squares[0];
-
-        // First check if any friendly piece of this type can move to targetSq
-        const matchingMoves = legalMoves.filter(m => m.piece === pieceType && m.to === targetSq);
-        if (matchingMoves.length === 1) {
-            executeFastMove(matchingMoves[0].from, targetSq, pieceType);
-            return;
-        } else if (matchingMoves.length > 1) {
-            // Ambiguous piece destination: highlight candidates visually
-            clearHighlights();
-            matchingMoves.forEach(m => {
-                const el = document.getElementById(`sq-${m.from}`);
-                if (el) el.classList.add('candidate-piece');
-            });
-            const pieceNameEN = PIECE_NAMES_EN[pieceType];
-            setCommandText(`♟️ Multiple ${pieceNameEN}s can move to ${targetSq}. Say from-square.`);
-            App.stagedMove = { piece: pieceType, from: null, to: targetSq, awaitingConfirmation: false, moveObj: null };
-            playSelectionSound();
-            return;
-        }
-
-        // Second check: maybe square was a "from" square (e.g. "കുതിര ജി വൺ" meaning "Knight on g1")
-        const pieceAtSq = App.chess.get(targetSq);
-        if (pieceAtSq && pieceAtSq.type === pieceType && pieceAtSq.color === App.chess.turn()) {
-            highlightLegalMoves(targetSq);
-            App.stagedMove = { piece: pieceType, from: targetSq, to: null, awaitingConfirmation: false, moveObj: null };
-            const pieceNameEN = PIECE_NAMES_EN[pieceType];
-            setCommandText(`📍 ${pieceNameEN} (${targetSq}) selected. Say target square.`);
-            playSelectionSound();
-            return;
-        }
-
-        // Neither destination nor from-square valid for this piece -> Explicit Fault Move!
-        playErrorSound();
-        const pieceNameML = PIECE_NAMES_ML[pieceType] || pieceType;
-        const pieceNameEN = PIECE_NAMES_EN[pieceType] || pieceType;
-        setCommandText(`❌ ${pieceNameML} (${pieceNameEN}) ${targetSq} ലേക്ക് സാധ്യമല്ല (Illegal Move)`);
-        showToast(`❌ ${pieceNameML} → ${targetSq} സാധ്യമല്ല`, 'warning');
-        resetStagedMove();
-        return;
-    }
-
-    // CASE 3: Only 1 Square provided
-    if (squares.length === 1) {
-        const sq = squares[0];
-
-        // Subcase 3A: We already have a staged FROM square -> execute immediately!
-        if (App.stagedMove.from && App.stagedMove.from !== sq) {
-            executeFastMove(App.stagedMove.from, sq, App.stagedMove.piece);
-            return;
-        }
-
-        // Subcase 3B: We already have a staged PIECE and no from square
-        if (App.stagedMove.piece && !App.stagedMove.from) {
-            // First check: does sq contain a friendly piece of that type? (User is speaking the FROM square!)
-            const pieceAtSq = App.chess.get(sq);
-            if (pieceAtSq && pieceAtSq.type === App.stagedMove.piece && pieceAtSq.color === App.chess.turn()) {
-                highlightLegalMoves(sq);
-                App.stagedMove.from = sq;
-                setCommandText(`📍 ${PIECE_NAMES_EN[pieceAtSq.type]} (${sq}) selected. Say target square.`);
-                playSelectionSound();
-                return;
-            }
-
-            // Second check: is sq a unique destination for one such piece? (User is speaking the TO square!)
-            const matching = legalMoves.filter(m => m.piece === App.stagedMove.piece && m.to === sq);
-            if (matching.length === 1) {
-                executeFastMove(matching[0].from, sq, App.stagedMove.piece);
-                return;
-            } else if (matching.length > 1) {
-                clearHighlights();
-                matching.forEach(m => {
-                    const el = document.getElementById(`sq-${m.from}`);
-                    if (el) el.classList.add('candidate-piece');
-                });
-                setCommandText(`♟️ Multiple pieces can move to ${sq}. Say from-square.`);
-                App.stagedMove.to = sq;
-                playSelectionSound();
-                return;
-            } else {
-                // Illegal move for staged piece
-                playErrorSound();
-                const pML = PIECE_NAMES_ML[App.stagedMove.piece] || App.stagedMove.piece;
-                setCommandText(`❌ ${pML} ${sq} ലേക്ക് സാധ്യമല്ല (Illegal Move)`);
-                showToast(`❌ ${pML} → ${sq} സാധ്യമല്ല`, 'warning');
-                resetStagedMove();
-                return;
-            }
-        }
-
-        // Subcase 3C: Square contains friendly piece -> Select it as FROM visually
-        const pieceAtSq = App.chess.get(sq);
-        if (pieceAtSq && pieceAtSq.color === App.chess.turn()) {
-            highlightLegalMoves(sq);
-            App.stagedMove = { piece: pieceAtSq.type, from: sq, to: null, awaitingConfirmation: false, moveObj: null };
-            const pieceNameEN = PIECE_NAMES_EN[pieceAtSq.type];
-            setCommandText(`📍 ${pieceNameEN} (${sq}) selected. Say target square.`);
-            playSelectionSound();
-            return;
-        }
-
-        // Subcase 3D: Pawn move to target square
-        const pawnMoves = legalMoves.filter(m => m.piece === 'p' && m.to === sq);
-        if (pawnMoves.length === 1) {
-            executeFastMove(pawnMoves[0].from, sq, 'p');
-            return;
-        }
-
-        // If square is spoken alone and no pawn or piece can move there -> Explicit Fault Move!
-        playErrorSound();
-        setCommandText(`❌ തെറ്റായ നീക്കം: ${sq} ലേക്ക് സാധ്യമല്ല (Illegal Square)`);
-        showToast(`❌ ${sq} ലേക്ക് നീക്കം സാധ്യമല്ല`, 'warning');
-        resetStagedMove();
-        return;
-    }
-
-    // CASE 4: Only Piece Name provided (e.g. "കുതിര" / "Knight")
-    if (pieceType && squares.length === 0) {
-        const friendlyPieceSquares = [];
-        legalMoves.forEach(m => {
-            if (m.piece === pieceType && !friendlyPieceSquares.includes(m.from)) {
-                friendlyPieceSquares.push(m.from);
-            }
-        });
-
-        const pieceNameEN = PIECE_NAMES_EN[pieceType];
-
-        if (friendlyPieceSquares.length === 0) {
-            playErrorSound();
-            setCommandText(`❌ No legal moves for ${pieceNameEN}`);
-            return;
-        } else if (friendlyPieceSquares.length === 1) {
-            // Exactly one piece can move -> select it visually!
-            const fromSq = friendlyPieceSquares[0];
-            highlightLegalMoves(fromSq);
-            App.stagedMove = { piece: pieceType, from: fromSq, to: null, awaitingConfirmation: false, moveObj: null };
-            setCommandText(`📍 ${pieceNameEN} (${fromSq}) selected. Say target square.`);
-            playSelectionSound();
-            return;
-        } else {
-            // Multiple candidate pieces -> highlight them visually
-            clearHighlights();
-            friendlyPieceSquares.forEach(sq => {
-                const el = document.getElementById(`sq-${sq}`);
-                if (el) el.classList.add('candidate-piece');
-            });
-            App.stagedMove = { piece: pieceType, from: null, to: null, awaitingConfirmation: false, moveObj: null };
-            setCommandText(`♟️ ${pieceNameEN} selected. Say from-square (${friendlyPieceSquares.join(', ')}).`);
-            playSelectionSound();
-            return;
-        }
-    }
-
-    // Direct SAN fallback (e.g. "Nf3" or "e4")
-    try {
-        const directText = text.replace(/\s+/g, '').toLowerCase();
-        const testChess = new Chess(App.chess.fen());
-        const directMove = testChess.move(directText, { sloppy: true });
-        if (directMove) {
-            executeFastMove(directMove.from, directMove.to, directMove.piece, directMove.promotion);
-            return;
-        }
-    } catch (e) { }
-
-    playErrorSound();
-    setCommandText('❓ മനസ്സിലായില്ല — Could not understand. Say piece, from, or to square.');
-}
-
-function closeAllModals() {
-    document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
-}
-
-function matchCommand(text, commands) {
-    return commands.some(cmd => text.includes(cmd.toLowerCase()));
-}
-
-
-function parseFile(token) {
-    if (!token) return null;
-    const clean = token.toLowerCase().trim();
-    if (clean.length === 1 && /^[a-h]$/.test(clean)) return clean;
-    return ML_FILE_MAP[clean] || null;
-}
-
-function extractFile(tokens) {
-    for (const token of tokens) {
-        const f = parseFile(token);
-        if (f) return f;
-    }
-    return null;
-}
-
-function handleCastle(text) {
-    const isQueenside = matchCommand(text, ML_COMMANDS.castleQueen);
-    const isKingside = matchCommand(text, ML_COMMANDS.castleKing);
-
-    const legalMoves = App.chess.moves({ verbose: true });
-
-    if (isQueenside) {
-        const move = legalMoves.find(m => m.flags.includes('q'));
-        if (move) {
-            const result = App.chess.move(move.san);
-            if (result) { executeMove(result); return; }
-        }
-        showToast('ക്വീൻ സൈഡ് കോട്ട സാധ്യമല്ല', 'warning');
-        return;
-    }
-
-    if (isKingside) {
-        const move = legalMoves.find(m => m.flags.includes('k'));
-        if (move) {
-            const result = App.chess.move(move.san);
-            if (result) { executeMove(result); return; }
-        }
-        showToast('കിങ് സൈഡ് കോട്ട സാധ്യമല്ല', 'warning');
-        return;
-    }
-
-    // Generic castle — try kingside first, then queenside
-    let castleMove = legalMoves.find(m => m.flags.includes('k'));
-    if (!castleMove) castleMove = legalMoves.find(m => m.flags.includes('q'));
-
-    if (castleMove) {
-        const result = App.chess.move(castleMove.san);
-        if (result) { executeMove(result); return; }
-    }
-
-    showToast('കോട്ട കെട്ടാൻ സാധ്യമല്ല — Cannot castle', 'warning');
-    if (App.soundEnabled) speakML('കോട്ട കെട്ടാൻ സാധ്യമല്ല');
 }
 
 
@@ -1739,17 +2056,25 @@ function speakML(mlText, enText, onEndCallback) {
 
 function handleUndo() {
     resetStagedMove();
+    clearTimeout(App.botTimer);                 // bot reply not played yet? cancel it
+    VOICE.pendingChoice = null;
+    VOICE.confirm = null;
+    const hist = App.chess.history().length;
+    if (hist === 0) {
+        setCommandText('↩ പിൻവലിക്കാൻ നീക്കങ്ങളില്ല — Nothing to undo');
+        return;
+    }
     if (App.gameMode === 'bot') {
-        // Undo both bot's move and player's move
-        App.chess.undo();
-        App.chess.undo();
+        // It is the player's turn -> take back bot reply AND own move; otherwise only own move
+        const n = (App.chess.turn() === App.playerColor) ? Math.min(2, hist) : 1;
+        for (let i = 0; i < n; i++) App.chess.undo();
     } else {
         App.chess.undo();
     }
+    App.isBotThinking = false;
+    showThinking(false);
 
-    // Recalculate captured pieces
     recalculateCaptured();
-
     App.lastMoveFrom = null;
     App.lastMoveTo = null;
 
@@ -1763,6 +2088,10 @@ function handleUndo() {
     setCommandText('↩ ' + msg);
     showToast(msg, 'info');
     if (App.soundEnabled) speakML('നീക്കം പിൻവലിച്ചു', 'Move undone');
+
+    if (App.gameMode === 'bot' && !App.chess.game_over() && App.chess.turn() !== App.playerColor) {
+        App.botTimer = setTimeout(() => botMove(), 500);
+    }
 }
 
 function handleResign() {
@@ -1950,19 +2279,12 @@ function initUI() {
         if (App.soundEnabled) speakML('സുഹൃത്തിനോടൊപ്പമുള്ള കളി ആരംഭിച്ചു');
     });
 
-    // Language selector
+    // Language selector (auto | ml-IN | en-IN)
     document.querySelectorAll('#lang-selector .diff-option').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('#lang-selector .diff-option').forEach(b => b.classList.remove('selected'));
             btn.classList.add('selected');
-            App.voiceLang = btn.dataset.lang;
-            if (App.recognition) {
-                App.recognition.lang = App.voiceLang;
-                if (App.isListening) {
-                    stopListening();
-                    setTimeout(() => startListening(), 300);
-                }
-            }
+            setRecognitionMode(btn.dataset.lang);
         });
     });
 
@@ -2204,9 +2526,21 @@ function stopTimer() {
 // 15. SOUND EFFECTS (Web Audio API)
 // ============================================================
 
+// One shared AudioContext: creating/closing a context per sound is slow and
+// makes the browser re-route audio, which disturbs the open microphone.
+let _audioCtx = null;
+function getAudioCtx() {
+    try {
+        if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (_audioCtx.state === 'suspended') _audioCtx.resume();
+        return _audioCtx;
+    } catch (e) { return null; }
+}
+
 function playGameStartSound() {
     try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = getAudioCtx();
+        if (!ctx) return;
         const notes = [523.25, 659.25, 783.99]; // C5, E5, G5 major triad
         notes.forEach((freq, idx) => {
             const osc = ctx.createOscillator();
@@ -2220,13 +2554,13 @@ function playGameStartSound() {
             osc.start(ctx.currentTime + idx * 0.1);
             osc.stop(ctx.currentTime + idx * 0.1 + 0.35);
         });
-        setTimeout(() => ctx.close(), 1000);
     } catch (e) {}
 }
 
 function playSelectionSound() {
     try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = getAudioCtx();
+        if (!ctx) return;
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sine';
@@ -2237,13 +2571,13 @@ function playSelectionSound() {
         gain.connect(ctx.destination);
         osc.start();
         osc.stop(ctx.currentTime + 0.05);
-        setTimeout(() => ctx.close(), 100);
     } catch (e) {}
 }
 
 function playErrorSound() {
     try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = getAudioCtx();
+        if (!ctx) return;
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sawtooth';
@@ -2254,13 +2588,13 @@ function playErrorSound() {
         gain.connect(ctx.destination);
         osc.start();
         osc.stop(ctx.currentTime + 0.08);
-        setTimeout(() => ctx.close(), 150);
     } catch (e) {}
 }
 
 function playMoveSound(move) {
     try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = getAudioCtx();
+        if (!ctx) return;
         const oscillator = ctx.createOscillator();
         const gainNode = ctx.createGain();
 
@@ -2283,8 +2617,6 @@ function playMoveSound(move) {
             oscillator.start();
             oscillator.stop(ctx.currentTime + 0.06);
         }
-
-        setTimeout(() => ctx.close(), 300);
     } catch (e) {}
 }
 
